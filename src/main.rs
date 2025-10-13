@@ -43,8 +43,8 @@ fn run(prog: &str) -> Result<(), String> {
             }
 
             let exe = lang.build(prog)?;
-            println!("Run './{}'", exe);
 
+            println!("{}", lang.run(&exe)?);
             Ok(())
         },
         None => {

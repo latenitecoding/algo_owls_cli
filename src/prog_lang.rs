@@ -7,6 +7,7 @@ pub trait ProgLang {
 
     fn build(&self, filename: &str) -> Result<String, String>;
     fn command_exists(&self) -> bool;
+    fn run(&self, exe: &str) -> Result<String, String>;
     fn version(&self) -> Option<String>;
 }
 
@@ -53,6 +54,36 @@ impl ProgLang for ZigLang {
 
     fn command_exists(&self) -> bool {
         self.version().is_some()
+    }
+
+    fn run(&self, exe: &str) -> Result<String, String> {
+        let output = Command::new(format!("./{}", exe))
+            .output()
+            .expect("cannot execute binary file");
+        if output.status.success() {
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            if stderr.is_empty() {
+                return Ok(stdout.to_string());
+            }
+            if stdout.is_empty() {
+                return Ok(
+                    format!(
+                        "================ DEBUG ================\n{}",
+                        stderr,
+                    )
+                );
+            }
+            Ok(
+                format!(
+                    "{}\n\n================ DEBUG ================\n{}",
+                    stdout,
+                    stderr
+                )
+            )
+        } else {
+            Err(String::from_utf8_lossy(&output.stderr).to_string())
+        }
     }
 
     fn version(&self) -> Option<String> {
