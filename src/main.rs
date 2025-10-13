@@ -1,8 +1,10 @@
 use clap::{arg, Command};
 use std::ffi::OsStr;
+use std::fs;
 use std::fs::File;
 use std::io::copy;
 use std::path::Path;
+use zip::ZipArchive;
 
 mod prog_lang;
 use prog_lang::{get_prog_lang, run_binary};
@@ -25,6 +27,19 @@ macro_rules! report_err {
     }
 }
 
+fn remove_path(file_or_dir: &str) -> Result<(), String> {
+    let path = Path::new(file_or_dir);
+    let metadata = fs::metadata(path).map_err(|e| e.to_string())?;
+
+    if metadata.is_dir() {
+        fs::remove_dir_all(path).map_err(|e| e.to_string())?;
+    } else if metadata.is_file() {
+        fs::remove_file(path).map_err(|e| e.to_string())?;
+    }
+
+    Ok(())
+}
+
 fn cli() -> Command {
     Command::new("owl")
         .about("A lightweight CLI to assist in solving CP problems")
@@ -40,29 +55,22 @@ fn cli() -> Command {
             Command::new("fetch")
                 .about("fetches sample test cases from given URL")
                 .arg(arg!(<URL> "The URL to fetch from"))
-                .arg(arg!(<OUT> "The local file to copy to"))
+                .arg(arg!(<DIR> "The local directory to extract into"))
                 .arg_required_else_help(true),
         )
 }
 
-fn clean(exe: &str) -> Result<(), String> {
-    let output = std::process::Command::new("rm")
-        .arg(exe)
-        .output()
-        .expect("should be able to remove executable");
-
-    if output.status.success() {
-        Ok(())
-    } else {
-        Err(String::from_utf8_lossy(&output.stderr).to_string())
-    }
-}
-
-fn fetch(url: &str, out: &str) -> Result<(), String> {
+fn fetch(url: &str, dir: &str) -> Result<(), String> {
     let mut resp = reqwest::blocking::get(url).map_err(|e| e.to_string())?;
-    let mut file = File::create(out).map_err(|e| e.to_string())?;
+    let mut file = File::create(".tmp.zip").map_err(|e| e.to_string())?;
     copy(&mut resp, &mut file).map_err(|e| e.to_string())?;
-    Ok(())
+
+    let zip_file = File::open(".tmp.zip").map_err(|e| e.to_string())?;
+    let mut archive = ZipArchive::new(zip_file).map_err(|e| e.to_string())?;
+    fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+    archive.extract(dir).map_err(|e| e.to_string())?;
+
+    remove_path(".tmp.zip")
 }
 
 fn run(prog: &str) -> Result<(), String> {
@@ -83,7 +91,7 @@ fn run(prog: &str) -> Result<(), String> {
             let exe = lang.build(prog)?;
 
             println!("{}", lang.run(&exe)?);
-            clean(&exe)
+            remove_path(&exe)
         },
         None => {
             println!("{}", run_binary(prog)?);
@@ -109,11 +117,11 @@ fn main() {
             let url = sub_matches
                 .get_one::<String>("URL")
                 .expect("required");
-            let out = sub_matches
-                .get_one::<String>("OUT")
+            let dir = sub_matches
+                .get_one::<String>("DIR")
                 .expect("required");
 
-            if let Err(e) = fetch(url, out) {
+            if let Err(e) = fetch(url, dir) {
                 report_err!(&e);
             }
         },
