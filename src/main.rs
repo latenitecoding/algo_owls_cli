@@ -1,5 +1,6 @@
 use clap::{arg, Command};
 use std::ffi::OsStr;
+use std::fs;
 use std::path::Path;
 
 mod owl_utils;
@@ -25,6 +26,17 @@ macro_rules! report_err {
     }
 }
 
+macro_rules! test_failure {
+    ($test_case:expr, $expected:expr, $actual:expr) => {
+        eprintln!(
+            "\x1b[31m[test failure]\x1b[0m: '{}'\n\n\x1b[1;33m>>> expected <<<\x1b[0m\n\n{}\n\x1b[1;35m>>> actual <<< \x1b[0m\n\n{}\n",
+            $test_case,
+            $expected,
+            $actual
+        )
+    }
+}
+
 fn cli() -> Command {
     Command::new("owl")
         .about("A lightweight CLI to assist in solving CP problems")
@@ -41,6 +53,14 @@ fn cli() -> Command {
                 .about("fetches sample test cases from given URL")
                 .arg(arg!(<URL> "The URL to fetch from"))
                 .arg(arg!(<DIR> "The local directory to extract into"))
+                .arg_required_else_help(true),
+        )
+        .subcommand(
+            Command::new("test")
+                .about("runs program against sample test case")
+                .arg(arg!(<PROG> "The program to run"))
+                .arg(arg!(<IN> "The input for the test case"))
+                .arg(arg!(<ANS> "The answer to the test case"))
                 .arg_required_else_help(true),
         )
 }
@@ -79,18 +99,22 @@ fn run(prog: &str) -> Result<(), String> {
     }
 }
 
-fn test(prog: &str, dir: &str) -> Result<(), String> {
-    let path = Path::new(prog);
-    let dir_path = Path::new(dir);
+fn test(prog: &str, in_file: &str, ans_file: &str) -> Result<(), String> {
+    let prog_path = Path::new(prog);
+    let in_path = Path::new(in_file);
+    let ans_path = Path::new(ans_file);
 
-    if !path.exists() {
+    if !prog_path.exists() {
         return file_not_found!(prog);
     }
-    if !dir_path.exists() {
-        return file_not_found!(dir);
+    if !in_path.exists() {
+        return file_not_found!(in_file);
+    }
+    if !ans_path.exists() {
+        return file_not_found!(ans_file);
     }
 
-    match path.extension().and_then(OsStr::to_str) {
+    match prog_path.extension().and_then(OsStr::to_str) {
         Some(ext) => {
             let lang = prog_lang::get_prog_lang(ext)?;
 
@@ -100,8 +124,21 @@ fn test(prog: &str, dir: &str) -> Result<(), String> {
 
             let exe = lang.build(prog)?;
 
-            println!("{}", lang.run(&exe)?);
-            fs_utils::remove_path(&exe)
+            let stdin = fs::read_to_string(in_path).map_err(|e| e.to_string())?;
+            let ans = fs::read_to_string(ans_path).map_err(|e| e.to_string())?;
+
+            let actual = lang.run_with_stdin(&exe, &stdin)?;
+
+            if actual != ans {
+                test_failure!(in_file, ans, actual);
+
+                match fs_utils::remove_path(&exe) {
+                    Ok(()) => Err("TEST FAILURES".to_owned()),
+                    Err(e) => Err(format!("TEST FAILURES\n\n{}", e.to_string())),
+                }
+            } else {
+                fs_utils::remove_path(&exe)
+            }
         },
         None => {
             println!("{}", cmd_utils::run_binary(prog)?);
@@ -135,6 +172,21 @@ fn main() {
                 report_err!(&e);
             }
         },
+        Some(("test", sub_matches)) => {
+            let prog = sub_matches
+                .get_one::<String>("PROG")
+                .expect("required");
+            let in_file = sub_matches
+                .get_one::<String>("IN")
+                .expect("required");
+            let ans_file = sub_matches
+                .get_one::<String>("ANS")
+                .expect("required");
+
+            if let Err(e) = test(prog, in_file, ans_file) {
+                report_err!(&e);
+            }
+        }
         _ => unreachable!(),
     }
 }

@@ -10,6 +10,7 @@ pub trait ProgLang {
     fn build(&self, filename: &str) -> Result<String, String>;
     fn command_exists(&self) -> bool;
     fn run(&self, exe: &str) -> Result<String, String>;
+    fn run_with_stdin(&self, exe: &str, input: &str) -> Result<String, String>;
     fn version(&self) -> Option<String>;
 }
 
@@ -64,6 +65,10 @@ impl ProgLang for ZigLang {
 
     fn run(&self, exe: &str) -> Result<String, String> {
         cmd_utils::run_binary(exe)
+    }
+
+    fn run_with_stdin(&self, exe: &str, input: &str) -> Result<String, String> {
+        cmd_utils::run_binary_with_stdin(exe, input)
     }
 
     fn version(&self) -> Option<String> {
