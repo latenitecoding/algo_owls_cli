@@ -42,7 +42,9 @@ fn run(prog: &str) -> Result<(), String> {
                 return command_not_found!(lang.name());
             }
 
-            println!("Run '{} {}'", lang.name(), prog);
+            let exe = lang.build(prog)?;
+            println!("Run './{}'", exe);
+
             Ok(())
         },
         None => {
