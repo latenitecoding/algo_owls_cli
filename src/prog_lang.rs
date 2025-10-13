@@ -21,7 +21,7 @@ pub fn get_prog_lang(lang: &str) -> Result<Box<dyn ProgLang>, String> {
 pub fn run_binary(exe: &str) -> Result<String, String> {
     let output = Command::new(format!("./{}", exe))
         .output()
-        .expect("cannot execute binary file");
+        .expect("should be able to execute binary file");
     if output.status.success() {
         let stdout = String::from_utf8_lossy(&output.stdout);
         let stderr = String::from_utf8_lossy(&output.stderr);
@@ -67,15 +67,16 @@ impl ProgLang for ZigLang {
     fn build(&self, filename: &str) -> Result<String, String> {
         let output = Command::new(self.cmd)
             .arg("build-exe")
+            .args(["-O", "ReleaseFast"])
             .arg(filename)
             .output()
-            .expect("zig build command not recognized");
+            .expect("'zig build-exe' should be recognized");
         if output.status.success() {
             println!("{}", String::from_utf8_lossy(&output.stdout));
             let stem = Path::new(filename)
                 .file_stem()
                 .and_then(OsStr::to_str)
-                .expect("file exists");
+                .expect("file should exist");
             Ok(stem.to_string())
         } else {
             Err(String::from_utf8_lossy(&output.stderr).to_string())

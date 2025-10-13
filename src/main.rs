@@ -34,7 +34,7 @@ fn clean(exe: &str) -> Result<(), String> {
     let output = std::process::Command::new("rm")
         .arg(exe)
         .output()
-        .expect("cannot remove executable");
+        .expect("should be able to remove executable");
     if output.status.success() {
         Ok(())
     } else {
