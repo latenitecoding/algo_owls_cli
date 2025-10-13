@@ -1,7 +1,7 @@
 use std::io::{BufReader, Read, Write};
-use std::process::{Command, Stdio};
+use std::process::{Child, Command, Stdio};
 
-fn stdout_else_stderr(mut child: std::process::Child) -> Result<String, String> {
+fn stdout_else_stderr(mut child: Child) -> Result<String, String> {
     let stdout_pipe = child.stdout.take().expect("should take stdout");
     let stderr_pipe = child.stderr.take().expect("should take stderr");
 
@@ -11,7 +11,9 @@ fn stdout_else_stderr(mut child: std::process::Child) -> Result<String, String> 
         let mut buffer = String::new();
 
         let mut reader = BufReader::new(stdout_pipe);
-        reader.read_to_string(&mut buffer).map_err(|e| e.to_string())?;
+        reader
+            .read_to_string(&mut buffer)
+            .map_err(|e| e.to_string())?;
 
         Ok(buffer)
     } else {
@@ -19,7 +21,9 @@ fn stdout_else_stderr(mut child: std::process::Child) -> Result<String, String> 
         buffer.push_str("child process failed\n\nPROGRAM LOG:\n");
 
         let mut reader = BufReader::new(stderr_pipe);
-        reader.read_to_string(&mut buffer).map_err(|e| e.to_string())?;
+        reader
+            .read_to_string(&mut buffer)
+            .map_err(|e| e.to_string())?;
 
         Err(buffer)
     }
@@ -44,7 +48,9 @@ pub fn run_cmd_with_stdin(mut cmd: Command, input: &str) -> Result<String, Strin
         .expect("should spawn child process");
 
     let mut stdin = child.stdin.take().expect("should take stdin");
-    stdin.write_all(input.as_bytes()).expect("should write to stdin");
+    stdin
+        .write_all(input.as_bytes())
+        .expect("should write to stdin");
 
     stdout_else_stderr(child)
 }

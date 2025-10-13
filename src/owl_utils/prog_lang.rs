@@ -28,7 +28,10 @@ pub struct ZigLang {
 
 impl ZigLang {
     pub fn new() -> Self {
-        ZigLang { cmd: "zig", ver_arg: "version" }
+        ZigLang {
+            cmd: "zig",
+            ver_arg: "version",
+        }
     }
 }
 
@@ -72,14 +75,10 @@ impl ProgLang for ZigLang {
     }
 
     fn version(&self) -> Option<String> {
-        let res = Command::new(self.cmd)
-            .arg(self.ver_arg)
-            .output();
+        let res = Command::new(self.cmd).arg(self.ver_arg).output();
 
         match res {
-            Ok(output) => {
-                Some(String::from_utf8_lossy(&output.stdout).to_string())
-            },
+            Ok(output) => Some(String::from_utf8_lossy(&output.stdout).to_string()),
             Err(_) => None,
         }
     }

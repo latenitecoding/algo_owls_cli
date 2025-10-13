@@ -1,4 +1,4 @@
-use clap::{arg, Command};
+use clap::{Command, arg};
 use std::ffi::OsStr;
 use std::fs;
 use std::path::Path;
@@ -6,35 +6,40 @@ use std::path::Path;
 mod owl_utils;
 use owl_utils::{cmd_utils, fs_utils, prog_lang};
 
-const TMP_ARCHIVE: &'static str = ".tmp.zip";
+const TMP_ARCHIVE: &str = ".tmp.zip";
 
 macro_rules! command_not_found {
     ($expr:expr) => {
         Err(format!("command not found: {}", $expr))
-    }
+    };
 }
 
 macro_rules! file_not_found {
     ($expr:expr) => {
-        Err(format!("'{}': No such file or directory (os error 2)", $expr))
-    }
+        Err(format!(
+            "'{}': No such file or directory (os error 2)",
+            $expr
+        ))
+    };
 }
 
 macro_rules! report_err {
     ($expr:expr) => {
         eprintln!("\x1b[31m[owl error]\x1b[0m: {}", $expr);
-    }
+    };
 }
 
 macro_rules! test_failure {
     ($test_case:expr, $expected:expr, $actual:expr) => {
         eprintln!(
-            "\x1b[31m[test failure]\x1b[0m: '{}'\n\n\x1b[1;33m>>> expected <<<\x1b[0m\n\n{}\n\x1b[1;35m>>> actual <<< \x1b[0m\n\n{}\n",
-            $test_case,
-            $expected,
-            $actual
+            concat!(
+                "\x1b[31m{}\x1b[0m: '{}'\n\n",
+                "\x1b[1;33m{}\x1b[0m\n\n{}\n",
+                "\x1b[1;35m{}\x1b[0m\n\n{}\n",
+            ),
+            "[test failure]", $test_case, ">>> expected <<<", $expected, ">>> actual <<<", $actual
         )
-    }
+    };
 }
 
 fn cli() -> Command {
@@ -91,7 +96,7 @@ fn run(prog: &str) -> Result<(), String> {
 
             println!("{}", lang.run(&exe)?);
             fs_utils::remove_path(&exe)
-        },
+        }
         None => {
             println!("{}", cmd_utils::run_binary(prog)?);
             Ok(())
@@ -134,12 +139,12 @@ fn test(prog: &str, in_file: &str, ans_file: &str) -> Result<(), String> {
 
                 match fs_utils::remove_path(&exe) {
                     Ok(()) => Err("TEST FAILURES".to_owned()),
-                    Err(e) => Err(format!("TEST FAILURES\n\n{}", e.to_string())),
+                    Err(e) => Err(format!("TEST FAILURES\n\n{}", e)),
                 }
             } else {
                 fs_utils::remove_path(&exe)
             }
-        },
+        }
         None => {
             println!("{}", cmd_utils::run_binary(prog)?);
             Ok(())
@@ -152,36 +157,24 @@ fn main() {
 
     match matches.subcommand() {
         Some(("run", sub_matches)) => {
-            let prog = sub_matches
-                .get_one::<String>("PROG")
-                .expect("required");
+            let prog = sub_matches.get_one::<String>("PROG").expect("required");
 
             if let Err(e) = run(prog) {
                 report_err!(&e);
             }
-        },
+        }
         Some(("fetch", sub_matches)) => {
-            let url = sub_matches
-                .get_one::<String>("URL")
-                .expect("required");
-            let dir = sub_matches
-                .get_one::<String>("DIR")
-                .expect("required");
+            let url = sub_matches.get_one::<String>("URL").expect("required");
+            let dir = sub_matches.get_one::<String>("DIR").expect("required");
 
             if let Err(e) = fetch(url, dir) {
                 report_err!(&e);
             }
-        },
+        }
         Some(("test", sub_matches)) => {
-            let prog = sub_matches
-                .get_one::<String>("PROG")
-                .expect("required");
-            let in_file = sub_matches
-                .get_one::<String>("IN")
-                .expect("required");
-            let ans_file = sub_matches
-                .get_one::<String>("ANS")
-                .expect("required");
+            let prog = sub_matches.get_one::<String>("PROG").expect("required");
+            let in_file = sub_matches.get_one::<String>("IN").expect("required");
+            let ans_file = sub_matches.get_one::<String>("ANS").expect("required");
 
             if let Err(e) = test(prog, in_file, ans_file) {
                 report_err!(&e);
