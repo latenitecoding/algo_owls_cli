@@ -19,6 +19,12 @@ macro_rules! file_not_found {
     }
 }
 
+macro_rules! report_err {
+    ($expr:expr) => {
+        eprintln!("\x1b[31m[owl error]\x1b[0m: {}", $expr);
+    }
+}
+
 fn cli() -> Command {
     Command::new("owl")
         .about("A lightweight CLI to assist in solving CP problems")
@@ -86,10 +92,6 @@ fn run(prog: &str) -> Result<(), String> {
     }
 }
 
-fn report_err(msg: &str) {
-    eprintln!("\x1b[31m[owl error]\x1b[0m: {}", msg);
-}
-
 fn main() {
     let matches = cli().get_matches();
 
@@ -100,7 +102,7 @@ fn main() {
                 .expect("required");
 
             if let Err(e) = run(prog) {
-                report_err(&e);
+                report_err!(&e);
             }
         },
         Some(("fetch", sub_matches)) => {
@@ -112,7 +114,7 @@ fn main() {
                 .expect("required");
 
             if let Err(e) = fetch(url, out) {
-                report_err(&e);
+                report_err!(&e);
             }
         },
         _ => unreachable!(),
