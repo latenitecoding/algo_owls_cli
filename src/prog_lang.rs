@@ -97,12 +97,15 @@ impl ProgLang for ZigLang {
             .arg(filename)
             .output()
             .expect("'zig build-exe' should be recognized");
+
         if output.status.success() {
             println!("{}", String::from_utf8_lossy(&output.stdout));
+
             let stem = Path::new(filename)
                 .file_stem()
                 .and_then(OsStr::to_str)
                 .expect("file should exist");
+
             Ok(stem.to_string())
         } else {
             Err(String::from_utf8_lossy(&output.stderr).to_string())
@@ -121,6 +124,7 @@ impl ProgLang for ZigLang {
         let res = Command::new(self.cmd)
             .arg(self.ver_arg)
             .output();
+
         match res {
             Ok(output) => {
                 Some(String::from_utf8_lossy(&output.stdout).to_string())

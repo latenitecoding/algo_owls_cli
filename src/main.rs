@@ -35,6 +35,7 @@ fn clean(exe: &str) -> Result<(), String> {
         .arg(exe)
         .output()
         .expect("should be able to remove executable");
+
     if output.status.success() {
         Ok(())
     } else {
@@ -44,9 +45,11 @@ fn clean(exe: &str) -> Result<(), String> {
 
 fn run(prog: &str) -> Result<(), String> {
     let path = Path::new(prog);
+
     if !path.exists() {
         return file_not_found!(prog);
     }
+
     match path.extension().and_then(OsStr::to_str) {
         Some(ext) => {
             let lang = get_prog_lang(ext)?;
@@ -79,6 +82,7 @@ fn main() {
             let prog = sub_matches
                 .get_one::<String>("PROG")
                 .expect("required");
+
             if let Err(e) = run(prog) {
                 report_err(&e);
             }
