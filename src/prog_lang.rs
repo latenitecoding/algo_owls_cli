@@ -1,6 +1,9 @@
+use crossbeam_channel::{select, unbounded};
 use std::ffi::OsStr;
+use std::io::{BufRead, BufReader};
 use std::path::Path;
-use std::process::Command;
+use std::process::{Command, Stdio};
+use std::thread;
 
 pub trait ProgLang {
     fn name(&self) -> &str;
@@ -19,32 +22,55 @@ pub fn get_prog_lang(lang: &str) -> Result<Box<dyn ProgLang>, String> {
 }
 
 pub fn run_binary(exe: &str) -> Result<String, String> {
-    let output = Command::new(format!("./{}", exe))
-        .output()
-        .expect("should be able to execute binary file");
-    if output.status.success() {
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        if stderr.is_empty() {
-            return Ok(stdout.to_string());
+    let cmd = Command::new(format!("./{}", exe));
+    run_cmd(cmd)
+}
+
+pub fn run_cmd(mut cmd: Command) -> Result<String, String> {
+    let mut child = cmd
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("should spawn child process");
+    
+    let stdout_pipe = child.stdout.take().expect("should take stdout");
+    let stderr_pipe = child.stderr.take().expect("should take stderr");
+
+    let (tx1, rx1) = unbounded();
+    let (tx2, rx2) = unbounded();
+
+    thread::spawn(move || {
+        let reader = BufReader::new(stdout_pipe);
+        for line in reader.lines().map_while(Result::ok) {
+            tx1.send(line).expect("should send line of stdout");
         }
-        if stdout.is_empty() {
-            return Ok(
-                format!(
-                    "================ DEBUG ================\n{}",
-                    stderr,
-                )
-            );
+    });
+
+    thread::spawn(move || {
+        let reader = BufReader::new(stderr_pipe);
+        for line in reader.lines().map_while(Result::ok) {
+            tx2.send(line).expect("should send line of stderr");
         }
-        Ok(
-            format!(
-                "{}\n\n================ DEBUG ================\n{}",
-                stdout,
-                stderr
-            )
-        )
+    });
+
+    let mut merged_output = String::new();
+    select! {
+        recv(rx1) -> out => {
+            merged_output
+                .push_str(&out.expect("should receive from stdout"));
+        }, 
+        recv(rx2) -> out => {
+            merged_output
+                .push_str(&out.expect("should receive from stderr"));
+        }, 
+    }
+
+    let status = child.wait().expect("child process should stop");
+
+    if status.success() {
+        Ok(merged_output)
     } else {
-        Err(String::from_utf8_lossy(&output.stderr).to_string())
+        Err(merged_output)
     }
 }
 
