@@ -30,6 +30,18 @@ fn cli() -> Command {
         )
 }
 
+fn clean(exe: &str) -> Result<(), String> {
+    let output = std::process::Command::new("rm")
+        .arg(exe)
+        .output()
+        .expect("cannot remove executable");
+    if output.status.success() {
+        Ok(())
+    } else {
+        Err(String::from_utf8_lossy(&output.stderr).to_string())
+    }
+}
+
 fn run(prog: &str) -> Result<(), String> {
     let path = Path::new(prog);
     if !path.exists() {
@@ -38,6 +50,7 @@ fn run(prog: &str) -> Result<(), String> {
     match path.extension().and_then(OsStr::to_str) {
         Some(ext) => {
             let lang = get_prog_lang(ext)?;
+
             if !lang.command_exists() {
                 return command_not_found!(lang.name());
             }
@@ -45,7 +58,7 @@ fn run(prog: &str) -> Result<(), String> {
             let exe = lang.build(prog)?;
 
             println!("{}", lang.run(&exe)?);
-            Ok(())
+            clean(&exe)
         },
         None => {
             println!("Run './{}'", prog);
