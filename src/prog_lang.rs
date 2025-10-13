@@ -70,6 +70,7 @@ pub fn run_cmd(mut cmd: Command) -> Result<String, String> {
     if status.success() {
         Ok(merged_output)
     } else {
+        merged_output.insert_str(0, "child process failed\n\nPROGRAM LOG:\n");
         Err(merged_output)
     }
 }
