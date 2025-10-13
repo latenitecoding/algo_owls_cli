@@ -3,7 +3,7 @@ use std::ffi::OsStr;
 use std::path::Path;
 
 mod prog_lang;
-use prog_lang::get_prog_lang;
+use prog_lang::{get_prog_lang, run_binary};
 
 macro_rules! command_not_found {
     ($expr:expr) => {
@@ -61,7 +61,7 @@ fn run(prog: &str) -> Result<(), String> {
             clean(&exe)
         },
         None => {
-            println!("Run './{}'", prog);
+            println!("{}", run_binary(prog)?);
             Ok(())
         }
     }
