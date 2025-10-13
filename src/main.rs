@@ -1,5 +1,7 @@
 use clap::{arg, Command};
 use std::ffi::OsStr;
+use std::fs::File;
+use std::io::copy;
 use std::path::Path;
 
 mod prog_lang;
@@ -28,6 +30,13 @@ fn cli() -> Command {
                 .arg(arg!(<PROG> "The program to run"))
                 .arg_required_else_help(true),
         )
+        .subcommand(
+            Command::new("fetch")
+                .about("fetches sample test cases from given URL")
+                .arg(arg!(<URL> "The URL to fetch from"))
+                .arg(arg!(<OUT> "The local file to copy to"))
+                .arg_required_else_help(true),
+        )
 }
 
 fn clean(exe: &str) -> Result<(), String> {
@@ -41,6 +50,13 @@ fn clean(exe: &str) -> Result<(), String> {
     } else {
         Err(String::from_utf8_lossy(&output.stderr).to_string())
     }
+}
+
+fn fetch(url: &str, out: &str) -> Result<(), String> {
+    let mut resp = reqwest::blocking::get(url).map_err(|e| e.to_string())?;
+    let mut file = File::create(out).map_err(|e| e.to_string())?;
+    copy(&mut resp, &mut file).map_err(|e| e.to_string())?;
+    Ok(())
 }
 
 fn run(prog: &str) -> Result<(), String> {
@@ -84,6 +100,18 @@ fn main() {
                 .expect("required");
 
             if let Err(e) = run(prog) {
+                report_err(&e);
+            }
+        },
+        Some(("fetch", sub_matches)) => {
+            let url = sub_matches
+                .get_one::<String>("URL")
+                .expect("required");
+            let out = sub_matches
+                .get_one::<String>("OUT")
+                .expect("required");
+
+            if let Err(e) = fetch(url, out) {
                 report_err(&e);
             }
         },
