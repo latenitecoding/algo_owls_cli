@@ -92,10 +92,14 @@ fn run(prog: &str) -> Result<(), String> {
                 return command_not_found!(lang.name());
             }
 
-            let exe = lang.build(prog)?;
+            let build_log = lang.build(prog)?;
+            println!("{}", build_log.stdout);
 
-            println!("{}", lang.run(&exe)?);
-            fs_utils::remove_path(&exe)
+            let run_result = lang.run(&build_log.target);
+
+            fs_utils::remove_path(&build_log.target).expect("should remove build target");
+
+            run_result.map(|stdout| println!("{}", stdout))
         }
         None => {
             println!("{}", cmd_utils::run_binary(prog)?);
@@ -127,23 +131,24 @@ fn test(prog: &str, in_file: &str, ans_file: &str) -> Result<(), String> {
                 return command_not_found!(lang.name());
             }
 
-            let exe = lang.build(prog)?;
+            let build_log = lang.build(prog)?;
+            println!("{}", build_log.stdout);
 
-            let stdin = fs::read_to_string(in_path).map_err(|e| e.to_string())?;
-            let ans = fs::read_to_string(ans_path).map_err(|e| e.to_string())?;
+            let stdin = fs::read_to_string(in_path).expect("should read from in file");
+            let ans = fs::read_to_string(ans_path).expect("should read from ans file");
 
-            let actual = lang.run_with_stdin(&exe, &stdin)?;
+            let run_result = lang.run_with_stdin(&build_log.target, &stdin);
 
-            if actual != ans {
-                test_failure!(in_file, ans, actual);
+            fs_utils::remove_path(&build_log.target).expect("should remove test target");
 
-                match fs_utils::remove_path(&exe) {
-                    Ok(()) => Err("TEST FAILURES".to_owned()),
-                    Err(e) => Err(format!("TEST FAILURES\n\n{}", e)),
+            run_result.and_then(|actual| {
+                if actual == ans {
+                    Ok(())
+                } else {
+                    test_failure!(in_file, ans, actual);
+                    Err("test failures".to_owned())
                 }
-            } else {
-                fs_utils::remove_path(&exe)
-            }
+            })
         }
         None => {
             println!("{}", cmd_utils::run_binary(prog)?);

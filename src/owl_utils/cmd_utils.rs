@@ -13,17 +13,16 @@ fn stdout_else_stderr(mut child: Child) -> Result<String, String> {
         let mut reader = BufReader::new(stdout_pipe);
         reader
             .read_to_string(&mut buffer)
-            .map_err(|e| e.to_string())?;
+            .expect("should read from stdout into buffer");
 
         Ok(buffer)
     } else {
         let mut buffer = String::new();
-        buffer.push_str("child process failed\n\nPROGRAM LOG:\n");
 
         let mut reader = BufReader::new(stderr_pipe);
         reader
             .read_to_string(&mut buffer)
-            .map_err(|e| e.to_string())?;
+            .expect("should read from stderr into buffer");
 
         Err(buffer)
     }
