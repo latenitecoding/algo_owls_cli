@@ -30,7 +30,7 @@ macro_rules! report_test_failed {
     ($test_case:expr, $expected:expr, $actual:expr) => {
         eprintln!(
             concat!(
-                "\x1b[31m{}\x1b[0m: '{}'\n\n",
+                "\x1b[31m{}\x1b[0m: {}\n\n",
                 "\x1b[1;33m{}\x1b[0m\n\n{}\n",
                 "\x1b[1;35m{}\x1b[0m\n\n{}\n",
             ),
@@ -45,16 +45,23 @@ fn cli() -> Command {
         .subcommand_required(true)
         .arg_required_else_help(true)
         .subcommand(
-            Command::new("run")
-                .about("builds and executes target program")
-                .arg(arg!(<PROG> "The program to run"))
+            Command::new("add")
+                .about("adds new personal quest to manifest")
+                .arg(arg!(<NAME> "The name of the quest"))
+                .arg(arg!(<URL> "The URL to fetch from"))
+                .arg(arg!(-f --fetch "Fetches test cases"))
                 .arg_required_else_help(true),
         )
         .subcommand(
             Command::new("fetch")
-                .about("fetches sample test cases from given URL")
-                .arg(arg!(<URL> "The URL to fetch from"))
-                .arg(arg!(<DIR> "The local directory to extract into"))
+                .about("fetches sample test cases for the given quest")
+                .arg(arg!(<NAME> "The name of the quest"))
+                .arg_required_else_help(true),
+        )
+        .subcommand(
+            Command::new("run")
+                .about("builds and executes target program")
+                .arg(arg!(<PROG> "The program to run"))
                 .arg_required_else_help(true),
         )
         .subcommand(
@@ -66,22 +73,17 @@ fn cli() -> Command {
                 .arg_required_else_help(true),
         )
         .subcommand(
-            Command::new("add")
-                .about("adds new personal quest to manifest")
-                .arg(arg!(<NAME> "The name of the quest"))
-                .arg(arg!(<URL> "The URL to fetch from"))
-                .arg_required_else_help(true),
-        )
-        .subcommand(
             Command::new("quest")
                 .about("tests program against all test cases")
                 .arg(arg!(<NAME> "The name of the quest"))
                 .arg(arg!(<PROG> "The program to test"))
+                .arg(arg!(-t --test <TEST> "The specific test to run by name"))
+                .arg(arg!(-c --case <CASE> "The specific test to run by case number"))
                 .arg_required_else_help(true),
         )
 }
 
-fn add(name: &str, url: &str) -> Result<(), OwlError> {
+fn add(name: &str, url: &str, and_fetch: bool) -> Result<(), OwlError> {
     // this should always rewrite entries in the personal table
     // of the manifest TOML, which is the last table in the manifest
     // new entires can always be appended
@@ -89,10 +91,16 @@ fn add(name: &str, url: &str) -> Result<(), OwlError> {
     manifest_path.push(MANIFEST);
 
     if !manifest_path.exists() {
-        fs_utils::create_toml_with_entry(&manifest_path, TOML_TEMPLATE, "personal", name, url)
+        fs_utils::create_toml_with_entry(&manifest_path, TOML_TEMPLATE, "personal", name, url)?
     } else {
-        fs_utils::update_toml_entry(&manifest_path, "personal", name, url)
+        fs_utils::update_toml_entry(&manifest_path, "personal", name, url)?
+    };
+
+    if and_fetch {
+        fetch_by_name(name)?;
     }
+
+    Ok(())
 }
 
 fn build_program(prog: &str) -> Result<String, OwlError> {
@@ -111,14 +119,7 @@ fn build_program(prog: &str) -> Result<String, OwlError> {
     }
 }
 
-fn fetch(url: &str, dir: &str) -> Result<(), OwlError> {
-    fs_utils::download_file(url, TMP_ARCHIVE)?;
-    fs_utils::extract_archive(TMP_ARCHIVE, dir)?;
-
-    fs_utils::remove_path(TMP_ARCHIVE)
-}
-
-fn fetch_by_name(name: &str, dir: &str) -> Result<(), OwlError> {
+fn fetch(name: &str, dir: &str) -> Result<(), OwlError> {
     let mut manifest_path = fs_utils::ensure_dir_from_home(OWL_DIR)?;
     manifest_path.push(MANIFEST);
 
@@ -129,17 +130,32 @@ fn fetch_by_name(name: &str, dir: &str) -> Result<(), OwlError> {
 
     let url = fs_utils::get_toml_entry(&manifest_path, &["quests", "personal"], name)?;
 
-    fetch(&url, dir)
+    fs_utils::download_file(&url, TMP_ARCHIVE)?;
+    fs_utils::extract_archive(TMP_ARCHIVE, dir)?;
+
+    fs_utils::remove_path(TMP_ARCHIVE)
 }
 
-fn quest(name: &str, prog: &str) -> Result<(), OwlError> {
+fn fetch_by_name(name: &str) -> Result<(), OwlError> {
+    let mut fetch_path = fs_utils::ensure_dir_from_home(OWL_DIR)?;
+    fetch_path.push(name);
+
+    fetch(name, check_path!(fetch_path)?)
+}
+
+fn quest(
+    name: &str,
+    prog: &str,
+    test_name: Option<&String>,
+    case_id: usize,
+) -> Result<(), OwlError> {
     let mut quest_path = fs_utils::ensure_dir_from_home(OWL_DIR)?;
     quest_path.push(name);
 
     let quest_dir = check_path!(quest_path)?.to_string();
 
     if !quest_path.exists() {
-        fetch_by_name(name, &quest_dir)?;
+        fetch(name, &quest_dir)?;
     }
 
     let mut test_cases: Vec<String> = Vec::new();
@@ -173,40 +189,49 @@ fn quest(name: &str, prog: &str) -> Result<(), OwlError> {
     let total = test_cases.len();
     let mut passed = 0;
     let mut failed = 0;
+    let mut count = 0;
 
     for test_case in test_cases {
+        count += 1;
+
         let in_path = Path::new(&test_case);
+        let in_stem = in_path
+            .file_stem()
+            .and_then(OsStr::to_str)
+            .ok_or(file_error!(test_case))?;
+
+        if let Some(name) = test_name {
+            if in_stem != name {
+                continue;
+            }
+        }
+
+        if case_id > 0 && count != case_id {
+            continue;
+        }
+
         let mut ans_path = in_path
             .parent()
             .ok_or(file_error!(format!("no parent of: '{}'", test_case)))?
             .to_path_buf();
 
-        let stem = format!(
-            "{}.ans",
-            in_path
-                .file_stem()
-                .and_then(OsStr::to_str)
-                .ok_or(file_error!(test_case))?
-        );
-        ans_path.push(&stem);
+        let ans_stem = format!("{}.ans", in_stem);
+        ans_path.push(&ans_stem);
 
         let ans_file = check_path!(&ans_path)?;
 
         match quest_it(&target, &test_case, ans_file) {
             Ok(_) => {
                 println!(
-                    "({}/{}) \x1b[32mpassed test\x1b[0m 🎉\n",
-                    passed + failed + 1,
-                    total
+                    "({}/{}) {} \x1b[32mpassed test\x1b[0m 🎉\n",
+                    count, total, in_stem
                 );
                 passed += 1;
             }
             Err(e) => {
                 eprintln!(
-                    "({}/{}) \x1b[31m{}\x1b[0m 😭\n",
-                    passed + failed + 1,
-                    total,
-                    e
+                    "({}/{}) {} \x1b[31m{}\x1b[0m 😭\n",
+                    count, total, in_stem, e
                 );
                 failed += 1;
             }
@@ -312,18 +337,26 @@ fn main() {
     let matches = cli().get_matches();
 
     match matches.subcommand() {
-        Some(("run", sub_matches)) => {
-            let prog = sub_matches.get_one::<String>("PROG").expect("required");
+        Some(("add", sub_matches)) => {
+            let name = sub_matches.get_one::<String>("NAME").expect("required");
+            let url = sub_matches.get_one::<String>("URL").expect("required");
+            let fetch = sub_matches.get_one::<bool>("fetch").map_or(false, |&f| f);
 
-            if let Err(e) = run(prog) {
+            if let Err(e) = add(name, url, fetch) {
                 report_owl_err!(&e);
             }
         }
         Some(("fetch", sub_matches)) => {
-            let url = sub_matches.get_one::<String>("URL").expect("required");
-            let dir = sub_matches.get_one::<String>("DIR").expect("required");
+            let name = sub_matches.get_one::<String>("NAME").expect("required");
 
-            if let Err(e) = fetch(url, dir) {
+            if let Err(e) = fetch_by_name(name) {
+                report_owl_err!(&e);
+            }
+        }
+        Some(("run", sub_matches)) => {
+            let prog = sub_matches.get_one::<String>("PROG").expect("required");
+
+            if let Err(e) = run(prog) {
                 report_owl_err!(&e);
             }
         }
@@ -336,19 +369,15 @@ fn main() {
                 report_owl_err!(&e);
             }
         }
-        Some(("add", sub_matches)) => {
-            let name = sub_matches.get_one::<String>("NAME").expect("required");
-            let url = sub_matches.get_one::<String>("URL").expect("required");
-
-            if let Err(e) = add(name, url) {
-                report_owl_err!(&e);
-            }
-        }
         Some(("quest", sub_matches)) => {
             let name = sub_matches.get_one::<String>("NAME").expect("required");
             let prog = sub_matches.get_one::<String>("PROG").expect("required");
+            let test = sub_matches.get_one::<String>("test");
+            let case = sub_matches
+                .get_one::<String>("case")
+                .map_or(0, |s| s.parse().expect("case id should be a number"));
 
-            if let Err(e) = quest(name, prog) {
+            if let Err(e) = quest(name, prog, test, case) {
                 report_owl_err!(&e);
             }
         }
