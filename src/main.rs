@@ -7,7 +7,7 @@ use std::path::Path;
 use toml_edit::{DocumentMut, value};
 
 mod owl_utils;
-use owl_utils::{cmd_utils, fs_utils, prog_lang};
+use owl_utils::{cmd_utils, fs_utils, owl_error::OwlError, prog_lang};
 
 const OWL_DIR: &str = ".owl";
 const MANIFEST: &str = ".manifest.toml";
@@ -78,8 +78,8 @@ fn cli() -> Command {
             Command::new("test")
                 .about("runs program against sample test case")
                 .arg(arg!(<PROG> "The program to test"))
-                .arg(arg!(<IN> "The input for the test case"))
-                .arg(arg!(<ANS> "The answer to the test case"))
+                .arg(arg!(<IN> "The input file for the test case"))
+                .arg(arg!(<ANS> "The answer file to the test case"))
                 .arg_required_else_help(true),
         )
         .subcommand(
@@ -98,23 +98,28 @@ fn cli() -> Command {
         )
 }
 
-fn add(name: &str, url: &str) -> Result<(), String> {
-    let mut manifest_path = dirs::home_dir().expect("should find home directory");
+fn add(name: &str, url: &str) -> Result<(), OwlError> {
+    // this should always rewrite entries in the personal table
+    // of the manifest TOML, which is the last table in the manifest
+    // new entires can always be appended
+    let mut manifest_path = dirs::home_dir().ok_or(file_error!("$HOME"))?;
 
     manifest_path.push(OWL_DIR);
 
     if !manifest_path.exists() {
-        fs::create_dir_all(&manifest_path).expect("should create owl directory");
+        fs::create_dir_all(&manifest_path).map_err(|e| file_error!(e))?;
     }
 
     manifest_path.push(MANIFEST);
 
     if !manifest_path.exists() {
+        // manifest doesn't exist, so we create it from the template
+        // and append the new entry
         let manifest_file = OpenOptions::new()
             .create(true)
-            .append(true)
+            .write(true)
             .open(&manifest_path)
-            .expect("should create manifest");
+            .map_err(|e| file_error!(e))?;
 
         let mut writer = BufWriter::new(manifest_file);
 
@@ -122,26 +127,30 @@ fn add(name: &str, url: &str) -> Result<(), String> {
 
         writer
             .write_all(TOML_TEMPLATE.as_bytes())
-            .expect("should write TOML template to manifest");
+            .map_err(|e| file_error!(e))?;
         writer
             .write_all(entry.as_bytes())
-            .expect("should write entry to manifest");
-        writer.flush().expect("should flush data to manifest");
+            .map_err(|e| file_error!(e))?;
+        writer.flush().map_err(|e| file_error!(e))?;
 
         return Ok(());
     }
 
+    // manifest file exists but may not have the entry
+
     let toml_str =
-        fs::read_to_string(&manifest_path).expect("should be able to read from manifest");
+        fs::read_to_string(&manifest_path).map_err(|e| file_error!(e))?;
     let mut doc = toml_str
         .parse::<DocumentMut>()
-        .expect("should parse manifest");
+        .map_err(|e| file_error!(e))?;
 
     if doc["personal"].get(name).is_none() {
+        // the entry is not in the manifest so it can be appended
+        // skips rewriting the whole file
         let manifest_file = OpenOptions::new()
             .append(true)
             .open(&manifest_path)
-            .expect("should open manifest");
+            .map_err(|e| file_error!(e))?;
 
         let mut writer = BufWriter::new(manifest_file);
 
@@ -149,16 +158,20 @@ fn add(name: &str, url: &str) -> Result<(), String> {
 
         writer
             .write_all(entry.as_bytes())
-            .expect("should write entry to manifest");
-        writer.flush().expect("should flush data to manifest");
+            .map_err(|e| file_error!(e))?;
+        writer.flush().map_err(|e| file_error!(e))?;
 
         return Ok(());
     }
 
+    // entry does exist, so must be overwritten
+    // could appear anywhere in the manifest
+    // so the entire manifest must be overwritten
+
     let manifest_file = OpenOptions::new()
         .write(true)
         .open(&manifest_path)
-        .expect("should open manifest");
+        .map_err(|e| file_error!(e))?;
 
     let mut writer = BufWriter::new(manifest_file);
 
@@ -166,13 +179,13 @@ fn add(name: &str, url: &str) -> Result<(), String> {
 
     writer
         .write_all(doc.to_string().as_bytes())
-        .expect("should write to manifest");
-    writer.flush().expect("should flush data to manifest");
+        .map_err(|e| file_error!(e))?;
+    writer.flush().map_err(|e| file_error!(e))?;
 
     Ok(())
 }
 
-fn fetch(url: &str, dir: &str) -> Result<(), String> {
+fn fetch(url: &str, dir: &str) -> Result<(), OwlError> {
     fs_utils::download_file(url, TMP_ARCHIVE)?;
     fs_utils::extract_archive(TMP_ARCHIVE, dir)?;
 
@@ -207,7 +220,7 @@ fn fetch_by_name(name: &str, dir: &str) -> Result<(), String> {
         .as_str()
         .expect("should parse entry in manifest");
 
-    fetch(url, dir)
+    fetch(url, dir).map_err(|e| e.to_string())
 }
 
 fn quest(name: &str, prog: &str) -> Result<(), String> {
@@ -458,7 +471,8 @@ fn main() {
             let url = sub_matches.get_one::<String>("URL").expect("required");
 
             if let Err(e) = add(name, url) {
-                report_err!(&e);
+                // report_err!(&e);
+                eprintln!("{}", e.to_string());
             }
         }
         Some(("quest", sub_matches)) => {
