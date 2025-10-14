@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use toml_edit::{DocumentMut, value};
 use zip::ZipArchive;
 
-use super::owl_error::{OwlError, file_error, net_error};
+use super::owl_error::{OwlError, file_error, net_error, no_entry_found};
 
 pub fn create_toml_with_entry(
     path: &Path,
@@ -61,6 +61,26 @@ pub fn extract_archive(filename: &str, dir: &str) -> Result<(), OwlError> {
     archive.extract(dir).map_err(|e| file_error!(e))?;
 
     Ok(())
+}
+
+pub fn get_toml_entry(path: &Path, tables: &[&str], name: &str) -> Result<String, OwlError> {
+    let toml_str = fs::read_to_string(&path).map_err(|e| file_error!(e))?;
+    let doc = toml_str
+        .parse::<DocumentMut>()
+        .map_err(|e| file_error!(e))?;
+
+    for &table in tables {
+        if let Some(entry) = doc[table].get(name) {
+            return entry
+                .as_value()
+                .ok_or(no_entry_found!(name))?
+                .as_str()
+                .ok_or(no_entry_found!(name))
+                .map(|ok| ok.to_string());
+        }
+    }
+
+    Err(no_entry_found!(name))
 }
 
 pub fn remove_path(file_or_dir: &str) -> Result<(), OwlError> {

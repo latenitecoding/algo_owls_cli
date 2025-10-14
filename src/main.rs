@@ -1,10 +1,8 @@
 use clap::{Command, arg};
 use std::collections::VecDeque;
 use std::ffi::OsStr;
-use std::fs::{self, OpenOptions};
-use std::io::{BufWriter, Write};
+use std::fs;
 use std::path::Path;
-use toml_edit::{DocumentMut, value};
 
 mod owl_utils;
 use owl_utils::{cmd_utils, fs_utils, owl_error::OwlError, prog_lang};
@@ -28,7 +26,7 @@ macro_rules! command_not_found {
     };
 }
 
-macro_rules! file_not_found {
+macro_rules! file_n_found {
     ($expr:expr) => {
         Err(format!(
             "'{}': No such file or directory (os error 2)",
@@ -119,35 +117,18 @@ fn fetch(url: &str, dir: &str) -> Result<(), OwlError> {
     fs_utils::remove_path(TMP_ARCHIVE)
 }
 
-fn fetch_by_name(name: &str, dir: &str) -> Result<(), String> {
-    let mut manifest_path = dirs::home_dir().expect("should find home directory");
-    manifest_path.push(OWL_DIR);
+fn fetch_by_name(name: &str, dir: &str) -> Result<(), OwlError> {
+    let mut manifest_path = fs_utils::ensure_dir_from_home(OWL_DIR)?;
     manifest_path.push(MANIFEST);
 
     if !manifest_path.exists() {
-        return file_not_found!(manifest_path.to_str().expect("should read manifest path"));
+        let path_str = check_path!(manifest_path)?;
+        return Err(file_not_found!(path_str));
     }
 
-    let toml_str =
-        fs::read_to_string(&manifest_path).expect("should be able to read from manifest");
-    let doc = toml_str
-        .parse::<DocumentMut>()
-        .expect("should parse manifest");
+    let url = fs_utils::get_toml_entry(&manifest_path, &["quests", "personal"], name)?;
 
-    let entry = doc["quests"].get(name).or(doc["personal"].get(name));
-
-    if entry.is_none() {
-        return Err(format!("No manifest entry found: '{}'", name));
-    }
-
-    let url = entry
-        .expect("unreachable")
-        .as_value()
-        .expect("should have entry in manifest")
-        .as_str()
-        .expect("should parse entry in manifest");
-
-    fetch(url, dir).map_err(|e| e.to_string())
+    fetch(&url, dir)
 }
 
 fn quest(name: &str, prog: &str) -> Result<(), String> {
@@ -161,7 +142,7 @@ fn quest(name: &str, prog: &str) -> Result<(), String> {
         .to_string();
 
     if !quest_path.exists() {
-        fetch_by_name(name, &quest_dir)?;
+        fetch_by_name(name, &quest_dir).map_err(|e| e.to_string())?;
     }
 
     let mut test_cases: Vec<String> = Vec::new();
@@ -188,7 +169,7 @@ fn quest(name: &str, prog: &str) -> Result<(), String> {
     let prog_path = Path::new(prog);
 
     if !prog_path.exists() {
-        return file_not_found!(prog);
+        return file_n_found!(prog);
     }
 
     let target = match prog_path.extension().and_then(OsStr::to_str) {
@@ -268,13 +249,13 @@ fn quest_it(target: &str, in_file: &str, ans_file: &str) -> Result<(), String> {
     let ans_path = Path::new(ans_file);
 
     if !prog_path.exists() {
-        return file_not_found!(target);
+        return file_n_found!(target);
     }
     if !in_path.exists() {
-        return file_not_found!(in_file);
+        return file_n_found!(in_file);
     }
     if !ans_path.exists() {
-        return file_not_found!(ans_file);
+        return file_n_found!(ans_file);
     }
 
     let stdin = fs::read_to_string(in_path).expect("should read from in file");
@@ -314,7 +295,7 @@ fn run(prog: &str) -> Result<(), String> {
     let path = Path::new(prog);
 
     if !path.exists() {
-        return file_not_found!(prog);
+        return file_n_found!(prog);
     }
 
     match path.extension().and_then(OsStr::to_str) {
