@@ -10,14 +10,21 @@ pub trait ProgLang {
 
     fn build(&self, filename: &str) -> Result<BuildLog, OwlError>;
     fn command_exists(&self) -> bool;
-    fn run(&self, target: &str) -> Result<String, String>;
-    fn run_with_stdin(&self, target: &str, input: &str) -> Result<String, String>;
+    fn run(&self, target: &str) -> Result<String, OwlError>;
+    fn run_with_stdin(&self, target: &str, input: &str) -> Result<String, OwlError>;
     fn version(&self) -> Option<String>;
 }
 
 pub struct BuildLog {
     pub target: String,
     pub stdout: String,
+}
+
+pub fn check_prog_lang(prog: &str) -> Option<Box<dyn ProgLang>> {
+    Path::new(prog)
+        .extension()
+        .and_then(OsStr::to_str)
+        .and_then(|ext| get_prog_lang(ext).ok())
 }
 
 pub fn get_prog_lang(lang: &str) -> Result<Box<dyn ProgLang>, OwlError> {
@@ -78,11 +85,11 @@ impl ProgLang for ZigLang {
         self.version().is_some()
     }
 
-    fn run(&self, target: &str) -> Result<String, String> {
+    fn run(&self, target: &str) -> Result<String, OwlError> {
         cmd_utils::run_binary(target)
     }
 
-    fn run_with_stdin(&self, target: &str, input: &str) -> Result<String, String> {
+    fn run_with_stdin(&self, target: &str, input: &str) -> Result<String, OwlError> {
         cmd_utils::run_binary_with_stdin(target, input)
     }
 

@@ -20,22 +20,13 @@ version = "0.0.0"
 [personal]
 "#;
 
-macro_rules! file_n_found {
-    ($expr:expr) => {
-        Err(format!(
-            "'{}': No such file or directory (os error 2)",
-            $expr
-        ))
-    };
-}
-
-macro_rules! report_err {
+macro_rules! report_owl_err {
     ($expr:expr) => {
         eprintln!("\x1b[31m[owl error]\x1b[0m: {}", $expr);
     };
 }
 
-macro_rules! test_failed {
+macro_rules! report_test_failed {
     ($test_case:expr, $expected:expr, $actual:expr) => {
         eprintln!(
             concat!(
@@ -105,12 +96,8 @@ fn add(name: &str, url: &str) -> Result<(), OwlError> {
 }
 
 fn build_program(prog: &str) -> Result<String, OwlError> {
-    let prog_path = Path::new(prog);
-
-    match prog_path.extension().and_then(OsStr::to_str) {
-        Some(ext) => {
-            let lang = prog_lang::get_prog_lang(ext)?;
-
+    match prog_lang::check_prog_lang(prog) {
+        Some(lang) => {
             if !lang.command_exists() {
                 return Err(command_not_found!(lang.name()));
             }
@@ -238,30 +225,28 @@ fn quest(name: &str, prog: &str) -> Result<(), OwlError> {
     }
 }
 
-fn quest_it(target: &str, in_file: &str, ans_file: &str) -> Result<(), String> {
+fn quest_it(target: &str, in_file: &str, ans_file: &str) -> Result<(), OwlError> {
     let prog_path = Path::new(target);
     let in_path = Path::new(in_file);
     let ans_path = Path::new(ans_file);
 
     if !prog_path.exists() {
-        return file_n_found!(target);
+        return Err(file_not_found!(target));
     }
     if !in_path.exists() {
-        return file_n_found!(in_file);
+        return Err(file_not_found!(in_file));
     }
     if !ans_path.exists() {
-        return file_n_found!(ans_file);
+        return Err(file_not_found!(ans_file));
     }
 
-    let stdin = fs::read_to_string(in_path).expect("should read from in file");
-    let ans = fs::read_to_string(ans_path).expect("should read from ans file");
+    let stdin = fs::read_to_string(in_path).map_err(|e| file_error!(e))?;
+    let ans = fs::read_to_string(ans_path).map_err(|e| file_error!(e))?;
 
-    match prog_path.extension().and_then(OsStr::to_str) {
-        Some(ext) => {
-            let lang = prog_lang::get_prog_lang(ext).map_err(|e| e.to_string())?;
-
+    match prog_lang::check_prog_lang(target) {
+        Some(lang) => {
             if !lang.command_exists() {
-                return Err("command not found".to_string());
+                return Err(command_not_found!(lang.name()));
             }
 
             let run_result = lang.run_with_stdin(target, &stdin);
@@ -270,8 +255,8 @@ fn quest_it(target: &str, in_file: &str, ans_file: &str) -> Result<(), String> {
                 if actual == ans {
                     Ok(())
                 } else {
-                    test_failed!(in_file, ans, actual);
-                    Err("failed test".to_owned())
+                    report_test_failed!(in_file, ans, actual);
+                    Err(test_failure!("failed test"))
                 }
             })
         }
@@ -279,34 +264,25 @@ fn quest_it(target: &str, in_file: &str, ans_file: &str) -> Result<(), String> {
             if actual == ans {
                 Ok(())
             } else {
-                test_failed!(in_file, ans, actual);
-                Err("failed test".to_owned())
+                report_test_failed!(in_file, ans, actual);
+                Err(test_failure!("failed test"))
             }
         }),
     }
 }
 
-fn run(prog: &str) -> Result<(), String> {
-    let path = Path::new(prog);
-
-    if !path.exists() {
-        return file_n_found!(prog);
+fn run(prog: &str) -> Result<(), OwlError> {
+    if !Path::new(prog).exists() {
+        return Err(file_not_found!(prog));
     }
 
-    match path.extension().and_then(OsStr::to_str) {
-        Some(ext) => {
-            let lang = prog_lang::get_prog_lang(ext).map_err(|e| e.to_string())?;
+    match prog_lang::check_prog_lang(prog) {
+        Some(lang) => {
+            let target = build_program(prog)?;
 
-            if !lang.command_exists() {
-                return Err("command not found".to_string());
-            }
+            let run_result = lang.run(&target);
 
-            let build_log = lang.build(prog).map_err(|e| e.to_string())?;
-            println!("{}", build_log.stdout);
-
-            let run_result = lang.run(&build_log.target);
-
-            fs_utils::remove_path(&build_log.target).expect("should remove build target");
+            fs_utils::remove_path(&target)?;
 
             run_result.map(|stdout| println!("{}", stdout))
         }
@@ -317,25 +293,16 @@ fn run(prog: &str) -> Result<(), String> {
     }
 }
 
-fn test(prog: &str, in_file: &str, ans_file: &str) -> Result<(), String> {
-    let prog_path = Path::new(prog);
+fn test(prog: &str, in_file: &str, ans_file: &str) -> Result<(), OwlError> {
+    match prog_lang::check_prog_lang(prog) {
+        Some(_) => {
+            let target = build_program(prog)?;
 
-    match prog_path.extension().and_then(OsStr::to_str) {
-        Some(ext) => {
-            let lang = prog_lang::get_prog_lang(ext).map_err(|e| e.to_string())?;
+            let test_result = quest_it(&target, in_file, ans_file);
 
-            if !lang.command_exists() {
-                return Err("command not found".to_string());
-            }
+            fs_utils::remove_path(&target)?;
 
-            let build_log = lang.build(prog).map_err(|e| e.to_string())?;
-            println!("{}", build_log.stdout);
-
-            let test_result = quest_it(&build_log.target, in_file, ans_file);
-
-            fs_utils::remove_path(&build_log.target).expect("should remove test target");
-
-            test_result.map_err(|_| "test failures".to_string())
+            test_result
         }
         None => quest_it(prog, in_file, ans_file),
     }
@@ -349,7 +316,7 @@ fn main() {
             let prog = sub_matches.get_one::<String>("PROG").expect("required");
 
             if let Err(e) = run(prog) {
-                report_err!(&e);
+                report_owl_err!(&e);
             }
         }
         Some(("fetch", sub_matches)) => {
@@ -357,8 +324,7 @@ fn main() {
             let dir = sub_matches.get_one::<String>("DIR").expect("required");
 
             if let Err(e) = fetch(url, dir) {
-                // report_err!(&e);
-                eprintln!("{}", e.to_string());
+                report_owl_err!(&e);
             }
         }
         Some(("test", sub_matches)) => {
@@ -367,7 +333,7 @@ fn main() {
             let ans_file = sub_matches.get_one::<String>("ANS").expect("required");
 
             if let Err(e) = test(prog, in_file, ans_file) {
-                report_err!(&e);
+                report_owl_err!(&e);
             }
         }
         Some(("add", sub_matches)) => {
@@ -375,8 +341,7 @@ fn main() {
             let url = sub_matches.get_one::<String>("URL").expect("required");
 
             if let Err(e) = add(name, url) {
-                // report_err!(&e);
-                eprintln!("{}", e.to_string());
+                report_owl_err!(&e);
             }
         }
         Some(("quest", sub_matches)) => {
@@ -384,8 +349,7 @@ fn main() {
             let prog = sub_matches.get_one::<String>("PROG").expect("required");
 
             if let Err(e) = quest(name, prog) {
-                // report_err!(&e);
-                eprintln!("{}", e.to_string());
+                report_owl_err!(&e);
             }
         }
         _ => unreachable!(),
