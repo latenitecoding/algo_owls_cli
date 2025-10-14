@@ -102,87 +102,14 @@ fn add(name: &str, url: &str) -> Result<(), OwlError> {
     // this should always rewrite entries in the personal table
     // of the manifest TOML, which is the last table in the manifest
     // new entires can always be appended
-    let mut manifest_path = dirs::home_dir().ok_or(file_error!("$HOME"))?;
-
-    manifest_path.push(OWL_DIR);
-
-    if !manifest_path.exists() {
-        fs::create_dir_all(&manifest_path).map_err(|e| file_error!(e))?;
-    }
-
+    let mut manifest_path = fs_utils::ensure_dir_from_home(OWL_DIR)?;
     manifest_path.push(MANIFEST);
 
     if !manifest_path.exists() {
-        // manifest doesn't exist, so we create it from the template
-        // and append the new entry
-        let manifest_file = OpenOptions::new()
-            .create(true)
-            .write(true)
-            .open(&manifest_path)
-            .map_err(|e| file_error!(e))?;
-
-        let mut writer = BufWriter::new(manifest_file);
-
-        let entry = format!("{} = \"{}\"\n", name, url);
-
-        writer
-            .write_all(TOML_TEMPLATE.as_bytes())
-            .map_err(|e| file_error!(e))?;
-        writer
-            .write_all(entry.as_bytes())
-            .map_err(|e| file_error!(e))?;
-        writer.flush().map_err(|e| file_error!(e))?;
-
-        return Ok(());
+        fs_utils::create_toml_with_entry(&manifest_path, TOML_TEMPLATE, "personal", name, url)
+    } else {
+        fs_utils::update_toml_entry(&manifest_path, "personal", name, url)
     }
-
-    // manifest file exists but may not have the entry
-
-    let toml_str =
-        fs::read_to_string(&manifest_path).map_err(|e| file_error!(e))?;
-    let mut doc = toml_str
-        .parse::<DocumentMut>()
-        .map_err(|e| file_error!(e))?;
-
-    if doc["personal"].get(name).is_none() {
-        // the entry is not in the manifest so it can be appended
-        // skips rewriting the whole file
-        let manifest_file = OpenOptions::new()
-            .append(true)
-            .open(&manifest_path)
-            .map_err(|e| file_error!(e))?;
-
-        let mut writer = BufWriter::new(manifest_file);
-
-        let entry = format!("{} = \"{}\"\n", name, url);
-
-        writer
-            .write_all(entry.as_bytes())
-            .map_err(|e| file_error!(e))?;
-        writer.flush().map_err(|e| file_error!(e))?;
-
-        return Ok(());
-    }
-
-    // entry does exist, so must be overwritten
-    // could appear anywhere in the manifest
-    // so the entire manifest must be overwritten
-
-    let manifest_file = OpenOptions::new()
-        .write(true)
-        .open(&manifest_path)
-        .map_err(|e| file_error!(e))?;
-
-    let mut writer = BufWriter::new(manifest_file);
-
-    doc["personal"][name] = value(url);
-
-    writer
-        .write_all(doc.to_string().as_bytes())
-        .map_err(|e| file_error!(e))?;
-    writer.flush().map_err(|e| file_error!(e))?;
-
-    Ok(())
 }
 
 fn fetch(url: &str, dir: &str) -> Result<(), OwlError> {
