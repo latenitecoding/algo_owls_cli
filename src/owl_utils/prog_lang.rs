@@ -3,11 +3,12 @@ use std::path::Path;
 use std::process::Command;
 
 use super::cmd_utils;
+use super::owl_error::{OwlError, file_error, not_supported, program_error};
 
 pub trait ProgLang {
     fn name(&self) -> &str;
 
-    fn build(&self, filename: &str) -> Result<BuildLog, String>;
+    fn build(&self, filename: &str) -> Result<BuildLog, OwlError>;
     fn command_exists(&self) -> bool;
     fn run(&self, target: &str) -> Result<String, String>;
     fn run_with_stdin(&self, target: &str, input: &str) -> Result<String, String>;
@@ -19,10 +20,10 @@ pub struct BuildLog {
     pub stdout: String,
 }
 
-pub fn get_prog_lang(lang: &str) -> Result<Box<dyn ProgLang>, String> {
+pub fn get_prog_lang(lang: &str) -> Result<Box<dyn ProgLang>, OwlError> {
     match lang {
         "zig" => Ok(Box::new(ZigLang::new())),
-        _ => Err(format!("Unrecognized programming language: {}", lang)),
+        _ => Err(not_supported!(lang)),
     }
 }
 
@@ -45,7 +46,7 @@ impl ProgLang for ZigLang {
         self.cmd
     }
 
-    fn build(&self, filename: &str) -> Result<BuildLog, String> {
+    fn build(&self, filename: &str) -> Result<BuildLog, OwlError> {
         let output = Command::new(self.cmd)
             .arg("build-exe")
             .args(["-O", "ReleaseFast"])
@@ -53,19 +54,23 @@ impl ProgLang for ZigLang {
             .output()
             .expect("'zig build-exe' should be recognized");
 
-        let stdout = String::from_utf8_lossy(&output.stdout).to_string();
-        let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+        let stdout = String::from_utf8(output.stdout)
+            .map_err(|e| file_error!(e))?
+            .to_string();
+        let stderr = String::from_utf8(output.stderr)
+            .map_err(|e| file_error!(e))?
+            .to_string();
 
         if output.status.success() {
             let target = Path::new(filename)
                 .file_stem()
                 .and_then(OsStr::to_str)
-                .expect("filepath should have a filename")
+                .ok_or(file_error!(filename))?
                 .to_owned();
 
             Ok(BuildLog { target, stdout })
         } else {
-            Err(stderr)
+            Err(program_error!(stderr))
         }
     }
 

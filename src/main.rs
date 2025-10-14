@@ -20,12 +20,6 @@ version = "0.0.0"
 [personal]
 "#;
 
-macro_rules! command_not_found {
-    ($expr:expr) => {
-        Err(format!("command not found: {}", $expr))
-    };
-}
-
 macro_rules! file_n_found {
     ($expr:expr) => {
         Err(format!(
@@ -41,7 +35,7 @@ macro_rules! report_err {
     };
 }
 
-macro_rules! test_failure {
+macro_rules! test_failed {
     ($test_case:expr, $expected:expr, $actual:expr) => {
         eprintln!(
             concat!(
@@ -110,6 +104,26 @@ fn add(name: &str, url: &str) -> Result<(), OwlError> {
     }
 }
 
+fn build_program(prog: &str) -> Result<String, OwlError> {
+    let prog_path = Path::new(prog);
+
+    match prog_path.extension().and_then(OsStr::to_str) {
+        Some(ext) => {
+            let lang = prog_lang::get_prog_lang(ext)?;
+
+            if !lang.command_exists() {
+                return Err(command_not_found!(lang.name()));
+            }
+
+            let build_log = lang.build(prog)?;
+            println!("{}", build_log.stdout);
+
+            Ok(build_log.target)
+        }
+        None => Ok(prog.to_string()),
+    }
+}
+
 fn fetch(url: &str, dir: &str) -> Result<(), OwlError> {
     fs_utils::download_file(url, TMP_ARCHIVE)?;
     fs_utils::extract_archive(TMP_ARCHIVE, dir)?;
@@ -131,18 +145,14 @@ fn fetch_by_name(name: &str, dir: &str) -> Result<(), OwlError> {
     fetch(&url, dir)
 }
 
-fn quest(name: &str, prog: &str) -> Result<(), String> {
-    let mut quest_path = dirs::home_dir().expect("should find home directory");
-    quest_path.push(OWL_DIR);
+fn quest(name: &str, prog: &str) -> Result<(), OwlError> {
+    let mut quest_path = fs_utils::ensure_dir_from_home(OWL_DIR)?;
     quest_path.push(name);
 
-    let quest_dir = quest_path
-        .to_str()
-        .expect("should parse quest path")
-        .to_string();
+    let quest_dir = check_path!(quest_path)?.to_string();
 
     if !quest_path.exists() {
-        fetch_by_name(name, &quest_dir).map_err(|e| e.to_string())?;
+        fetch_by_name(name, &quest_dir)?;
     }
 
     let mut test_cases: Vec<String> = Vec::new();
@@ -151,17 +161,16 @@ fn quest(name: &str, prog: &str) -> Result<(), String> {
     queue.push_back(quest_dir);
 
     while let Some(dir) = queue.pop_front() {
-        for entry in fs::read_dir(dir).map_err(|e| e.to_string())? {
-            let path = entry.map_err(|e| e.to_string())?.path();
+        for entry in fs::read_dir(dir).map_err(|e| file_error!(e))? {
+            let path = entry.map_err(|e| file_error!(e))?.path();
 
             if path.is_dir() {
-                queue.push_back(path.to_str().expect("should parse path").to_string());
-            }
-            if path.is_file()
+                queue.push_back(check_path!(path)?.to_string());
+            } else if path.is_file()
                 && let Some(ext) = path.extension().and_then(OsStr::to_str)
                 && ext == "in"
             {
-                test_cases.push(path.to_str().expect("should parse path").to_string());
+                test_cases.push(check_path!(path)?.to_string());
             }
         }
     }
@@ -169,24 +178,10 @@ fn quest(name: &str, prog: &str) -> Result<(), String> {
     let prog_path = Path::new(prog);
 
     if !prog_path.exists() {
-        return file_n_found!(prog);
+        return Err(file_not_found!(prog));
     }
 
-    let target = match prog_path.extension().and_then(OsStr::to_str) {
-        Some(ext) => {
-            let lang = prog_lang::get_prog_lang(ext)?;
-
-            if !lang.command_exists() {
-                return command_not_found!(lang.name());
-            }
-
-            let build_log = lang.build(prog)?;
-            println!("{}", build_log.stdout);
-
-            build_log.target
-        }
-        None => prog.to_string(),
-    };
+    let target = build_program(prog)?;
 
     let total = test_cases.len();
     let mut passed = 0;
@@ -196,7 +191,7 @@ fn quest(name: &str, prog: &str) -> Result<(), String> {
         let in_path = Path::new(&test_case);
         let mut ans_path = in_path
             .parent()
-            .expect("should parse parent dir")
+            .ok_or(file_error!(format!("no parent of: '{}'", test_case)))?
             .to_path_buf();
 
         let stem = format!(
@@ -204,11 +199,11 @@ fn quest(name: &str, prog: &str) -> Result<(), String> {
             in_path
                 .file_stem()
                 .and_then(OsStr::to_str)
-                .expect("should parse file stem")
+                .ok_or(file_error!(test_case))?
         );
         ans_path.push(&stem);
 
-        let ans_file = &ans_path.to_str().expect("should parse ans path");
+        let ans_file = check_path!(&ans_path)?;
 
         match quest_it(&target, &test_case, ans_file) {
             Ok(_) => {
@@ -233,10 +228,10 @@ fn quest(name: &str, prog: &str) -> Result<(), String> {
 
     println!("passed: {}, failed: {}", passed, failed);
 
-    fs_utils::remove_path(&target).expect("should remove build target");
+    fs_utils::remove_path(&target)?;
 
     if failed > 0 {
-        Err("test failures".to_owned())
+        Err(test_failure!("test failures"))
     } else {
         println!("\x1b[32mall tests passed\x1b[0m 🏆🏆🏆\n");
         Ok(())
@@ -263,10 +258,10 @@ fn quest_it(target: &str, in_file: &str, ans_file: &str) -> Result<(), String> {
 
     match prog_path.extension().and_then(OsStr::to_str) {
         Some(ext) => {
-            let lang = prog_lang::get_prog_lang(ext)?;
+            let lang = prog_lang::get_prog_lang(ext).map_err(|e| e.to_string())?;
 
             if !lang.command_exists() {
-                return command_not_found!(lang.name());
+                return Err("command not found".to_string());
             }
 
             let run_result = lang.run_with_stdin(target, &stdin);
@@ -275,7 +270,7 @@ fn quest_it(target: &str, in_file: &str, ans_file: &str) -> Result<(), String> {
                 if actual == ans {
                     Ok(())
                 } else {
-                    test_failure!(in_file, ans, actual);
+                    test_failed!(in_file, ans, actual);
                     Err("failed test".to_owned())
                 }
             })
@@ -284,7 +279,7 @@ fn quest_it(target: &str, in_file: &str, ans_file: &str) -> Result<(), String> {
             if actual == ans {
                 Ok(())
             } else {
-                test_failure!(in_file, ans, actual);
+                test_failed!(in_file, ans, actual);
                 Err("failed test".to_owned())
             }
         }),
@@ -300,13 +295,13 @@ fn run(prog: &str) -> Result<(), String> {
 
     match path.extension().and_then(OsStr::to_str) {
         Some(ext) => {
-            let lang = prog_lang::get_prog_lang(ext)?;
+            let lang = prog_lang::get_prog_lang(ext).map_err(|e| e.to_string())?;
 
             if !lang.command_exists() {
-                return command_not_found!(lang.name());
+                return Err("command not found".to_string());
             }
 
-            let build_log = lang.build(prog)?;
+            let build_log = lang.build(prog).map_err(|e| e.to_string())?;
             println!("{}", build_log.stdout);
 
             let run_result = lang.run(&build_log.target);
@@ -327,13 +322,13 @@ fn test(prog: &str, in_file: &str, ans_file: &str) -> Result<(), String> {
 
     match prog_path.extension().and_then(OsStr::to_str) {
         Some(ext) => {
-            let lang = prog_lang::get_prog_lang(ext)?;
+            let lang = prog_lang::get_prog_lang(ext).map_err(|e| e.to_string())?;
 
             if !lang.command_exists() {
-                return command_not_found!(lang.name());
+                return Err("command not found".to_string());
             }
 
-            let build_log = lang.build(prog)?;
+            let build_log = lang.build(prog).map_err(|e| e.to_string())?;
             println!("{}", build_log.stdout);
 
             let test_result = quest_it(&build_log.target, in_file, ans_file);
@@ -362,7 +357,8 @@ fn main() {
             let dir = sub_matches.get_one::<String>("DIR").expect("required");
 
             if let Err(e) = fetch(url, dir) {
-                report_err!(&e);
+                // report_err!(&e);
+                eprintln!("{}", e.to_string());
             }
         }
         Some(("test", sub_matches)) => {
@@ -388,7 +384,8 @@ fn main() {
             let prog = sub_matches.get_one::<String>("PROG").expect("required");
 
             if let Err(e) = quest(name, prog) {
-                report_err!(&e);
+                // report_err!(&e);
+                eprintln!("{}", e.to_string());
             }
         }
         _ => unreachable!(),
