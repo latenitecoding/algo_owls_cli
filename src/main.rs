@@ -81,6 +81,15 @@ fn cli() -> Command {
                 .arg(arg!(-c --case <CASE> "The specific test to run by case number"))
                 .arg_required_else_help(true),
         )
+        .subcommand(
+            Command::new("show")
+                .about("prints the input(s) or answer(s) to the test cases")
+                .arg(arg!(<NAME> "The name of the quest"))
+                .arg(arg!(-t --test <TEST> "The specific test to print by name"))
+                .arg(arg!(-c --case <CASE> "The specific test to print by case number"))
+                .arg(arg!(-a --ans "Print the answer instead of the input"))
+                .arg_required_else_help(true),
+        )
 }
 
 fn add(name: &str, url: &str, and_fetch: bool) -> Result<(), OwlError> {
@@ -318,6 +327,82 @@ fn run(prog: &str) -> Result<(), OwlError> {
     }
 }
 
+fn show(
+    name: &str,
+    test_name: Option<&String>,
+    case_id: usize,
+    show_ans: bool,
+) -> Result<(), OwlError> {
+    let mut quest_path = fs_utils::ensure_dir_from_home(OWL_DIR)?;
+    quest_path.push(name);
+
+    let quest_dir = check_path!(quest_path)?.to_string();
+
+    if !quest_path.exists() {
+        fetch(name, &quest_dir)?;
+    }
+
+    let mut test_cases: Vec<String> = Vec::new();
+
+    let mut queue: VecDeque<String> = VecDeque::new();
+    queue.push_back(quest_dir);
+
+    while let Some(dir) = queue.pop_front() {
+        for entry in fs::read_dir(dir).map_err(|e| file_error!(e))? {
+            let path = entry.map_err(|e| file_error!(e))?.path();
+
+            if path.is_dir() {
+                queue.push_back(check_path!(path)?.to_string());
+            } else if path.is_file()
+                && let Some(ext) = path.extension().and_then(OsStr::to_str)
+                && ext == "in"
+            {
+                test_cases.push(check_path!(path)?.to_string());
+            }
+        }
+    }
+
+    let mut count = 0;
+
+    for test_case in test_cases {
+        count += 1;
+
+        let in_path = Path::new(&test_case);
+        let in_stem = in_path
+            .file_stem()
+            .and_then(OsStr::to_str)
+            .ok_or(file_error!(test_case))?;
+
+        if let Some(name) = test_name {
+            if in_stem != name {
+                continue;
+            }
+        }
+
+        if case_id > 0 && count != case_id {
+            continue;
+        }
+
+        let mut ans_path = in_path
+            .parent()
+            .ok_or(file_error!(format!("no parent of: '{}'", test_case)))?
+            .to_path_buf();
+
+        let ans_stem = format!("{}.ans", in_stem);
+        ans_path.push(&ans_stem);
+
+        let contents = if show_ans {
+            fs::read_to_string(&ans_path).map_err(|e| file_error!(e))?
+        } else {
+            fs::read_to_string(test_case).map_err(|e| file_error!(e))?
+        };
+
+        println!("{}", contents);
+    }
+
+    Ok(())
+}
+
 fn test(prog: &str, in_file: &str, ans_file: &str) -> Result<(), OwlError> {
     match prog_lang::check_prog_lang(prog) {
         Some(_) => {
@@ -378,6 +463,18 @@ fn main() {
                 .map_or(0, |s| s.parse().expect("case id should be a number"));
 
             if let Err(e) = quest(name, prog, test, case) {
+                report_owl_err!(&e);
+            }
+        }
+        Some(("show", sub_matches)) => {
+            let name = sub_matches.get_one::<String>("NAME").expect("required");
+            let test = sub_matches.get_one::<String>("test");
+            let case = sub_matches
+                .get_one::<String>("case")
+                .map_or(0, |s| s.parse().expect("case id should be a number"));
+            let ans = sub_matches.get_one::<bool>("ans").map_or(false, |&f| f);
+
+            if let Err(e) = show(name, test, case, ans) {
                 report_owl_err!(&e);
             }
         }
