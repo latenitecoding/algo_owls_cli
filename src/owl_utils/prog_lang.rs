@@ -137,6 +137,18 @@ pub fn get_prog_lang(lang_ext: &str) -> Result<Box<dyn ProgLang>, OwlError> {
             };
             Ok(Box::new(cpp_lang))
         }
+        "cr" => {
+            let crystal_lang = ComptimeLang {
+                name: "crystal",
+                cmd_str: "crystal",
+                ver_arg: "--version",
+                build_cmd_str: "crystal",
+                build_args: &["build", "-O", "2", "--no-color"],
+                exe_flag: Some("-o"),
+                fn_build_files: None,
+            };
+            Ok(Box::new(crystal_lang))
+        }
         "go" => {
             let go_lang = ComptimeLang {
                 name: "go",
@@ -166,6 +178,7 @@ pub fn get_prog_lang(lang_ext: &str) -> Result<Box<dyn ProgLang>, OwlError> {
             let julia_lang = RuntimeLang {
                 name: "julia",
                 cmd_str: "julia",
+                cmd_args: &[],
                 ver_arg: "--version",
             };
             Ok(Box::new(julia_lang))
@@ -174,6 +187,7 @@ pub fn get_prog_lang(lang_ext: &str) -> Result<Box<dyn ProgLang>, OwlError> {
             let js_lang = RuntimeLang {
                 name: "javascript",
                 cmd_str: "node",
+                cmd_args: &[],
                 ver_arg: "--version",
             };
             Ok(Box::new(js_lang))
@@ -202,9 +216,19 @@ pub fn get_prog_lang(lang_ext: &str) -> Result<Box<dyn ProgLang>, OwlError> {
             let py_lang = RuntimeLang {
                 name: "python",
                 cmd_str: "python3",
+                cmd_args: &[],
                 ver_arg: "--version",
             };
             Ok(Box::new(py_lang))
+        }
+        "rb" => {
+            let ruby_lang = RuntimeLang {
+                name: "ruby",
+                cmd_str: "ruby",
+                cmd_args: &["--yjit"],
+                ver_arg: "--version",
+            };
+            Ok(Box::new(ruby_lang))
         }
         "rs" => {
             let rust_lang = ComptimeLang {
@@ -319,6 +343,7 @@ impl ProgLang for ComptimeLang {
 pub struct RuntimeLang {
     name: &'static str,
     cmd_str: &'static str,
+    cmd_args: &'static [&'static str],
     ver_arg: &'static str,
 }
 
@@ -341,6 +366,7 @@ impl ProgLang for RuntimeLang {
 
     fn run_it(&self, target: &str, stdin: Option<&str>) -> Result<String, OwlError> {
         let mut run_cmd = Command::new(self.cmd_str);
+        run_cmd.args(self.cmd_args);
         run_cmd.arg(target);
 
         match stdin {
