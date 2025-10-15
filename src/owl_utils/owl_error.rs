@@ -36,6 +36,8 @@ macro_rules! check_path {
     };
 }
 
+pub(crate) use check_path;
+
 #[macro_export]
 macro_rules! command_not_found {
     ($expr:expr) => {
@@ -64,6 +66,8 @@ macro_rules! file_not_found {
         ))
     };
 }
+
+pub(crate) use file_not_found;
 
 #[macro_export]
 macro_rules! program_error {

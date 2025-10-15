@@ -1,5 +1,4 @@
 use clap::{Command, arg};
-use std::collections::VecDeque;
 use std::ffi::OsStr;
 use std::fs;
 use std::path::Path;
@@ -167,26 +166,6 @@ fn quest(
         fetch(name, &quest_dir)?;
     }
 
-    let mut test_cases: Vec<String> = Vec::new();
-
-    let mut queue: VecDeque<String> = VecDeque::new();
-    queue.push_back(quest_dir);
-
-    while let Some(dir) = queue.pop_front() {
-        for entry in fs::read_dir(dir).map_err(|e| file_error!(e))? {
-            let path = entry.map_err(|e| file_error!(e))?.path();
-
-            if path.is_dir() {
-                queue.push_back(check_path!(path)?.to_string());
-            } else if path.is_file()
-                && let Some(ext) = path.extension().and_then(OsStr::to_str)
-                && ext == "in"
-            {
-                test_cases.push(check_path!(path)?.to_string());
-            }
-        }
-    }
-
     let prog_path = Path::new(prog);
 
     if !prog_path.exists() {
@@ -195,7 +174,9 @@ fn quest(
 
     let target = build_program(prog)?;
 
+    let test_cases: Vec<String> = fs_utils::find_by_ext(quest_dir, "in")?;
     let total = test_cases.len();
+
     let mut passed = 0;
     let mut failed = 0;
     let mut count = 0;
@@ -219,31 +200,9 @@ fn quest(
             continue;
         }
 
-        let mut ans_path = in_path
-            .parent()
-            .ok_or(file_error!(format!("no parent of: '{}'", test_case)))?
-            .to_path_buf();
-
-        let ans_stem = format!("{}.ans", in_stem);
-        ans_path.push(&ans_stem);
-
-        let ans_file = check_path!(&ans_path)?;
-
-        match quest_it(&target, &test_case, ans_file) {
-            Ok(_) => {
-                println!(
-                    "({}/{}) {} \x1b[32mpassed test\x1b[0m 🎉\n",
-                    count, total, in_stem
-                );
-                passed += 1;
-            }
-            Err(e) => {
-                eprintln!(
-                    "({}/{}) {} \x1b[31m{}\x1b[0m 😭\n",
-                    count, total, in_stem, e
-                );
-                failed += 1;
-            }
+        match quest_it(&target, &test_case, count, total) {
+            Ok(true) => passed += 1,
+            Ok(false) | Err(_) => failed += 1,
         }
     }
 
@@ -259,7 +218,118 @@ fn quest(
     }
 }
 
-fn quest_it(target: &str, in_file: &str, ans_file: &str) -> Result<(), OwlError> {
+fn quest_it(target: &str, test_case: &str, count: usize, total: usize) -> Result<bool, OwlError> {
+    let in_path = Path::new(&test_case);
+    let in_stem = in_path
+        .file_stem()
+        .and_then(OsStr::to_str)
+        .ok_or(file_error!(test_case))?;
+
+    let ans_file = fs_utils::as_ans_file(&test_case)?;
+
+    match test_it(&target, &test_case, &ans_file) {
+        Ok(_) => {
+            println!(
+                "({}/{}) {} \x1b[32mpassed test\x1b[0m 🎉\n",
+                count, total, in_stem
+            );
+            Ok(true)
+        }
+        Err(e) => {
+            eprintln!(
+                "({}/{}) {} \x1b[31m{}\x1b[0m 😭\n",
+                count, total, in_stem, e
+            );
+            Ok(false)
+        }
+    }
+}
+
+fn run(prog: &str) -> Result<(), OwlError> {
+    if !Path::new(prog).exists() {
+        return Err(file_not_found!(prog));
+    }
+
+    match prog_lang::check_prog_lang(prog) {
+        Some(lang) => {
+            let target = build_program(prog)?;
+
+            let run_result = lang.run(&target);
+
+            fs_utils::remove_path(&target)?;
+
+            run_result.map(|stdout| println!("{}", stdout))
+        }
+        None => {
+            println!("{}", cmd_utils::run_binary(prog)?);
+            Ok(())
+        }
+    }
+}
+
+fn show(
+    name: &str,
+    test_name: Option<&String>,
+    case_id: usize,
+    show_ans: bool,
+) -> Result<(), OwlError> {
+    let mut quest_path = fs_utils::ensure_dir_from_home(OWL_DIR)?;
+    quest_path.push(name);
+
+    let quest_dir = check_path!(quest_path)?.to_string();
+
+    if !quest_path.exists() {
+        fetch(name, &quest_dir)?;
+    }
+
+    if let Some(name) = test_name {
+        let test_case = fs_utils::find_by_stem_and_ext(quest_dir, name, "in")?;
+        return show_it(&test_case, show_ans);
+    }
+
+    let test_cases: Vec<String> = fs_utils::find_by_ext(quest_dir, "in")?;
+
+    if case_id > 0 {
+        return show_it(&test_cases[case_id - 1], show_ans);
+    }
+
+    for test_case in test_cases {
+        show_it(&test_case, show_ans)?;
+    }
+
+    Ok(())
+}
+
+fn show_it(target_file: &str, show_ans: bool) -> Result<(), OwlError> {
+    let contents = if show_ans {
+        let ans_file = fs_utils::as_ans_file(target_file)?;
+
+        fs::read_to_string(ans_file).map_err(|e| file_error!(e))?
+    } else {
+        fs::read_to_string(target_file).map_err(|e| file_error!(e))?
+    };
+
+    println!("{}", contents);
+
+    Ok(())
+}
+
+fn test(prog: &str, in_file: &str, ans_file: &str) -> Result<(), OwlError> {
+    match prog_lang::check_prog_lang(prog) {
+        Some(_) => {
+            let target = build_program(prog)?;
+
+            let test_result = test_it(&target, in_file, ans_file);
+
+            fs_utils::remove_path(&target)?;
+
+            test_result
+        }
+        None => test_it(prog, in_file, ans_file),
+    }
+}
+
+fn test_it(target: &str, in_file: &str, ans_file: &str) -> Result<(), OwlError> {
     let prog_path = Path::new(target);
     let in_path = Path::new(in_file);
     let ans_path = Path::new(ans_file);
@@ -302,119 +372,6 @@ fn quest_it(target: &str, in_file: &str, ans_file: &str) -> Result<(), OwlError>
                 Err(test_failure!("failed test"))
             }
         }),
-    }
-}
-
-fn run(prog: &str) -> Result<(), OwlError> {
-    if !Path::new(prog).exists() {
-        return Err(file_not_found!(prog));
-    }
-
-    match prog_lang::check_prog_lang(prog) {
-        Some(lang) => {
-            let target = build_program(prog)?;
-
-            let run_result = lang.run(&target);
-
-            fs_utils::remove_path(&target)?;
-
-            run_result.map(|stdout| println!("{}", stdout))
-        }
-        None => {
-            println!("{}", cmd_utils::run_binary(prog)?);
-            Ok(())
-        }
-    }
-}
-
-fn show(
-    name: &str,
-    test_name: Option<&String>,
-    case_id: usize,
-    show_ans: bool,
-) -> Result<(), OwlError> {
-    let mut quest_path = fs_utils::ensure_dir_from_home(OWL_DIR)?;
-    quest_path.push(name);
-
-    let quest_dir = check_path!(quest_path)?.to_string();
-
-    if !quest_path.exists() {
-        fetch(name, &quest_dir)?;
-    }
-
-    let mut test_cases: Vec<String> = Vec::new();
-
-    let mut queue: VecDeque<String> = VecDeque::new();
-    queue.push_back(quest_dir);
-
-    while let Some(dir) = queue.pop_front() {
-        for entry in fs::read_dir(dir).map_err(|e| file_error!(e))? {
-            let path = entry.map_err(|e| file_error!(e))?.path();
-
-            if path.is_dir() {
-                queue.push_back(check_path!(path)?.to_string());
-            } else if path.is_file()
-                && let Some(ext) = path.extension().and_then(OsStr::to_str)
-                && ext == "in"
-            {
-                test_cases.push(check_path!(path)?.to_string());
-            }
-        }
-    }
-
-    let mut count = 0;
-
-    for test_case in test_cases {
-        count += 1;
-
-        let in_path = Path::new(&test_case);
-        let in_stem = in_path
-            .file_stem()
-            .and_then(OsStr::to_str)
-            .ok_or(file_error!(test_case))?;
-
-        if let Some(name) = test_name {
-            if in_stem != name {
-                continue;
-            }
-        }
-
-        if case_id > 0 && count != case_id {
-            continue;
-        }
-
-        let mut ans_path = in_path
-            .parent()
-            .ok_or(file_error!(format!("no parent of: '{}'", test_case)))?
-            .to_path_buf();
-
-        let ans_stem = format!("{}.ans", in_stem);
-        ans_path.push(&ans_stem);
-
-        let contents = if show_ans {
-            fs::read_to_string(&ans_path).map_err(|e| file_error!(e))?
-        } else {
-            fs::read_to_string(test_case).map_err(|e| file_error!(e))?
-        };
-
-        println!("{}", contents);
-    }
-
-    Ok(())
-}
-
-fn test(prog: &str, in_file: &str, ans_file: &str) -> Result<(), OwlError> {
-    match prog_lang::check_prog_lang(prog) {
-        Some(_) => {
-            let target = build_program(prog)?;
-
-            let test_result = quest_it(&target, in_file, ans_file);
-
-            fs_utils::remove_path(&target)?;
-
-            test_result
-        }
-        None => quest_it(prog, in_file, ans_file),
     }
 }
 

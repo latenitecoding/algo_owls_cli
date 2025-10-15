@@ -1,10 +1,41 @@
+use std::collections::VecDeque;
+use std::ffi::OsStr;
 use std::fs::{self, File, OpenOptions};
 use std::io::{BufWriter, Write, copy};
 use std::path::{Path, PathBuf};
 use toml_edit::{DocumentMut, value};
 use zip::ZipArchive;
 
-use super::owl_error::{OwlError, file_error, net_error, no_entry_found};
+use super::owl_error::{
+    OwlError, check_path, file_error, file_not_found, net_error, no_entry_found,
+};
+
+pub fn as_ans_file(in_file: &str) -> Result<String, OwlError> {
+    let in_path = Path::new(in_file);
+
+    let target_stem = in_path
+        .file_stem()
+        .and_then(OsStr::to_str)
+        .ok_or(file_error!(format!("no parent of: '{}'", in_file)))?;
+
+    let ans_file = format!("{}.ans", target_stem);
+
+    let mut ans_path = in_path
+        .parent()
+        .ok_or(file_error!(format!("no parent of: '{}'", in_file)))?
+        .to_path_buf();
+
+    ans_path.push(ans_file);
+
+    if !ans_path.exists() {
+        Err(file_not_found!(check_path!(ans_path)?))
+    } else {
+        Ok(ans_path
+            .to_str()
+            .ok_or(file_error!(check_path!(ans_path)?))?
+            .to_string())
+    }
+}
 
 pub fn create_toml_with_entry(
     path: &Path,
@@ -61,6 +92,58 @@ pub fn extract_archive(filename: &str, dir: &str) -> Result<(), OwlError> {
     archive.extract(dir).map_err(|e| file_error!(e))?;
 
     Ok(())
+}
+
+pub fn find_by_ext(root_dir: String, target_ext: &str) -> Result<Vec<String>, OwlError> {
+    let mut test_cases: Vec<String> = Vec::new();
+
+    let mut queue: VecDeque<String> = VecDeque::new();
+    queue.push_back(root_dir);
+
+    while let Some(dir) = queue.pop_front() {
+        for entry in fs::read_dir(dir).map_err(|e| file_error!(e))? {
+            let path = entry.map_err(|e| file_error!(e))?.path();
+
+            if path.is_dir() {
+                queue.push_back(check_path!(path)?.to_string());
+            } else if path.is_file()
+                && let Some(ext) = path.extension().and_then(OsStr::to_str)
+                && ext == target_ext
+            {
+                test_cases.push(check_path!(path)?.to_string());
+            }
+        }
+    }
+
+    Ok(test_cases)
+}
+
+pub fn find_by_stem_and_ext(
+    root_dir: String,
+    target_stem: &str,
+    target_ext: &str,
+) -> Result<String, OwlError> {
+    let mut queue: VecDeque<String> = VecDeque::new();
+    queue.push_back(root_dir);
+
+    while let Some(dir) = queue.pop_front() {
+        for entry in fs::read_dir(dir).map_err(|e| file_error!(e))? {
+            let path = entry.map_err(|e| file_error!(e))?.path();
+
+            if path.is_dir() {
+                queue.push_back(check_path!(path)?.to_string());
+            } else if path.is_file()
+                && let Some(stem) = path.file_stem().and_then(OsStr::to_str)
+                && stem == target_stem
+                && let Some(ext) = path.extension().and_then(OsStr::to_str)
+                && ext == target_ext
+            {
+                return Ok(path.to_str().ok_or(file_error!(target_stem))?.to_string());
+            }
+        }
+    }
+
+    Err(file_not_found!(target_stem))
 }
 
 pub fn get_toml_entry(path: &Path, tables: &[&str], name: &str) -> Result<String, OwlError> {
