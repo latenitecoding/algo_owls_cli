@@ -101,6 +101,12 @@ fn cli() -> Command {
                 .arg_required_else_help(true),
         )
         .subcommand(
+            Command::new("restore")
+                .about("restores the program to the version stashed away")
+                .arg(arg!(<PROG> "The program to restore"))
+                .arg_required_else_help(true),
+        )
+        .subcommand(
             Command::new("init")
                 .about("creates a local file from a stashed template")
                 .arg(arg!(<PROG> "The program to initialize from the template"))
@@ -197,6 +203,10 @@ fn fetch_by_name(name: &str) -> Result<(), OwlError> {
 }
 
 fn init_program(prog: &str) -> Result<(), OwlError> {
+    if Path::new(prog).exists() {
+        return Err(file_error!(format!("file already exists: '{}'", prog)));
+    }
+
     let mut stash_path = fs_utils::ensure_dir_from_home(&[OWL_DIR, STASH_DIR])?;
 
     let ext = Path::new(prog)
@@ -303,6 +313,13 @@ fn quest_it(target: &str, test_case: &str, count: usize, total: usize) -> Result
             Ok(false)
         }
     }
+}
+
+fn restore_program(prog: &str) -> Result<(), OwlError> {
+    let mut stash_path = fs_utils::ensure_dir_from_home(&[OWL_DIR, STASH_DIR])?;
+    stash_path.push(prog);
+
+    fs_utils::copy_file(check_path!(stash_path)?, prog)
 }
 
 fn run(prog: &str) -> Result<(), OwlError> {
@@ -530,6 +547,13 @@ fn main() {
             let templ = sub_matches.get_one::<bool>("templ").map_or(false, |&f| f);
 
             if let Err(e) = stash(prog, templ) {
+                report_owl_err!(&e);
+            }
+        }
+        Some(("restore", sub_matches)) => {
+            let prog = sub_matches.get_one::<String>("PROG").expect("required");
+
+            if let Err(e) = restore_program(prog) {
                 report_owl_err!(&e);
             }
         }
