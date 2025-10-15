@@ -82,10 +82,10 @@ pub fn check_prog_lang(prog: &str) -> Option<Box<dyn ProgLang>> {
         .and_then(|ext| get_prog_lang(ext).ok())
 }
 
-pub fn get_prog_lang(lang: &str) -> Result<Box<dyn ProgLang>, OwlError> {
-    match lang {
+pub fn get_prog_lang(lang_ext: &str) -> Result<Box<dyn ProgLang>, OwlError> {
+    match lang_ext {
         "c" => {
-            let c_lang = CommonLang {
+            let c_lang = ComptimeLang {
                 name: "c",
                 cmd_str: "gcc",
                 ver_arg: "--version",
@@ -96,7 +96,7 @@ pub fn get_prog_lang(lang: &str) -> Result<Box<dyn ProgLang>, OwlError> {
             Ok(Box::new(c_lang))
         }
         "cpp" | "cc" | "C" | "cxx" | "c++" => {
-            let cpp_lang = CommonLang {
+            let cpp_lang = ComptimeLang {
                 name: "cpp",
                 cmd_str: "g++",
                 ver_arg: "--version",
@@ -107,7 +107,7 @@ pub fn get_prog_lang(lang: &str) -> Result<Box<dyn ProgLang>, OwlError> {
             Ok(Box::new(cpp_lang))
         }
         "go" => {
-            let go_lang = CommonLang {
+            let go_lang = ComptimeLang {
                 name: "go",
                 cmd_str: "go",
                 ver_arg: "version",
@@ -117,7 +117,18 @@ pub fn get_prog_lang(lang: &str) -> Result<Box<dyn ProgLang>, OwlError> {
             };
             Ok(Box::new(go_lang))
         }
-        "java" => Ok(Box::new(JavaLang::new())),
+        "java" => {
+            let java_lang = CustomLang {
+                name: "java",
+                build_cmd_str: "javac",
+                build_args: &["-encoding", "UTF-8"],
+                fn_target_name: |target_stem| format!("{}.class", target_stem),
+                run_cmd_str: "java",
+                run_args: &["-Dfile.encoding=UTF-8", "-XX:+UseSerialGC", "-Xss64m"],
+                ver_arg: "--version",
+            };
+            Ok(Box::new(java_lang))
+        }
         "jl" => {
             let julia_lang = RuntimeLang {
                 name: "julia",
@@ -125,6 +136,25 @@ pub fn get_prog_lang(lang: &str) -> Result<Box<dyn ProgLang>, OwlError> {
                 ver_arg: "--version",
             };
             Ok(Box::new(julia_lang))
+        }
+        "kt" => {
+            let kotlin_lang = CustomLang {
+                name: "kotlin",
+                build_cmd_str: "kotlinc",
+                build_args: &[],
+                fn_target_name: |target_stem| {
+                    let mut chars = target_stem.chars();
+                    let first_char = chars
+                        .next()
+                        .expect("filename should have first character")
+                        .to_uppercase();
+                    format!("{}{}Kt.class", first_char, chars.as_str())
+                },
+                run_cmd_str: "kotlin",
+                run_args: &["-J-XX:+UseSerialGC", "-J-Xss64m"],
+                ver_arg: "-version",
+            };
+            Ok(Box::new(kotlin_lang))
         }
         "py" | "py3" => {
             let py_lang = RuntimeLang {
@@ -135,7 +165,7 @@ pub fn get_prog_lang(lang: &str) -> Result<Box<dyn ProgLang>, OwlError> {
             Ok(Box::new(py_lang))
         }
         "rs" => {
-            let rust_lang = CommonLang {
+            let rust_lang = ComptimeLang {
                 name: "rust",
                 cmd_str: "rustc",
                 ver_arg: "--version",
@@ -146,7 +176,7 @@ pub fn get_prog_lang(lang: &str) -> Result<Box<dyn ProgLang>, OwlError> {
             Ok(Box::new(rust_lang))
         }
         "zig" => {
-            let zig_lang = CommonLang {
+            let zig_lang = ComptimeLang {
                 name: "zig",
                 cmd_str: "zig",
                 ver_arg: "version",
@@ -156,11 +186,11 @@ pub fn get_prog_lang(lang: &str) -> Result<Box<dyn ProgLang>, OwlError> {
             };
             Ok(Box::new(zig_lang))
         }
-        _ => Err(not_supported!(lang)),
+        _ => Err(not_supported!(lang_ext)),
     }
 }
 
-pub struct CommonLang {
+pub struct ComptimeLang {
     name: &'static str,
     cmd_str: &'static str,
     ver_arg: &'static str,
@@ -169,7 +199,7 @@ pub struct CommonLang {
     exe_flag: Option<&'static str>,
 }
 
-impl ProgLang for CommonLang {
+impl ProgLang for ComptimeLang {
     fn build_cmd(&self, filename: &str) -> Result<Command, OwlError> {
         let mut cmd = Command::new(self.build_cmd_str);
         cmd.args(self.build_args);
@@ -265,29 +295,17 @@ impl ProgLang for RuntimeLang {
     }
 }
 
-pub struct JavaLang {
+pub struct CustomLang {
     name: &'static str,
     build_cmd_str: &'static str,
     build_args: &'static [&'static str],
+    fn_target_name: fn(&str) -> String,
     run_cmd_str: &'static str,
     run_args: &'static [&'static str],
     ver_arg: &'static str,
 }
 
-impl JavaLang {
-    fn new() -> Self {
-        JavaLang {
-            name: "java",
-            build_cmd_str: "javac",
-            build_args: &["-encoding", "UTF-8"],
-            run_cmd_str: "java",
-            run_args: &["-Dfile.encoding=UTF-8", "-XX:+UseSerialGC", "-Xss64m"],
-            ver_arg: "--version",
-        }
-    }
-}
-
-impl ProgLang for JavaLang {
+impl ProgLang for CustomLang {
     fn build_cmd(&self, filename: &str) -> Result<Command, OwlError> {
         let mut cmd = Command::new(self.build_cmd_str);
         cmd.args(self.build_args);
@@ -322,11 +340,11 @@ impl ProgLang for JavaLang {
     }
 
     fn target_name(&self, target_stem: &str) -> String {
-        format!("{}.class", target_stem)
+        (self.fn_target_name)(target_stem)
     }
 
     fn version_cmd(&self) -> Result<Command, OwlError> {
-        let mut cmd = Command::new(self.run_cmd_str);
+        let mut cmd = Command::new(self.build_cmd_str);
         cmd.arg(self.ver_arg);
 
         Ok(cmd)
