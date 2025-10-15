@@ -99,7 +99,7 @@ pub fn get_prog_lang(lang_ext: &str) -> Result<Box<dyn ProgLang>, OwlError> {
                 ver_arg: "--version",
                 build_cmd_str: "gnatmake",
                 build_args: &["-g", "-O2"],
-                exe_flag: Some("-o"),
+                exe_flag: Some(("-o", ArgsPosition::Pre)),
                 fn_build_files: Some(|target_stem| {
                     vec![
                         format!("b~{}.adb", target_stem),
@@ -120,7 +120,7 @@ pub fn get_prog_lang(lang_ext: &str) -> Result<Box<dyn ProgLang>, OwlError> {
                 ver_arg: "--version",
                 build_cmd_str: "gcc",
                 build_args: &["-g", "-O2", "-std=gnu23", "-static", "-lm"],
-                exe_flag: Some("-o"),
+                exe_flag: Some(("-o", ArgsPosition::Pre)),
                 fn_build_files: None,
             };
             Ok(Box::new(c_lang))
@@ -132,7 +132,7 @@ pub fn get_prog_lang(lang_ext: &str) -> Result<Box<dyn ProgLang>, OwlError> {
                 ver_arg: "--version",
                 build_cmd_str: "g++",
                 build_args: &["-g", "-O2", "-std=gnu++23", "-static", "-lrt", "-lpthread"],
-                exe_flag: Some("-o"),
+                exe_flag: Some(("-o", ArgsPosition::Pre)),
                 fn_build_files: None,
             };
             Ok(Box::new(cpp_lang))
@@ -144,7 +144,7 @@ pub fn get_prog_lang(lang_ext: &str) -> Result<Box<dyn ProgLang>, OwlError> {
                 ver_arg: "--version",
                 build_cmd_str: "crystal",
                 build_args: &["build", "-O", "2", "--no-color"],
-                exe_flag: Some("-o"),
+                exe_flag: Some(("-o", ArgsPosition::Post)),
                 fn_build_files: None,
             };
             Ok(Box::new(crystal_lang))
@@ -156,7 +156,7 @@ pub fn get_prog_lang(lang_ext: &str) -> Result<Box<dyn ProgLang>, OwlError> {
                 ver_arg: "version",
                 build_cmd_str: "go",
                 build_args: &["build"],
-                exe_flag: Some("-o"),
+                exe_flag: Some(("-o", ArgsPosition::Pre)),
                 fn_build_files: None,
             };
             Ok(Box::new(go_lang))
@@ -212,6 +212,18 @@ pub fn get_prog_lang(lang_ext: &str) -> Result<Box<dyn ProgLang>, OwlError> {
             };
             Ok(Box::new(kotlin_lang))
         }
+        "odin" => {
+            let odin_lang = ComptimeLang {
+                name: "odin",
+                cmd_str: "odin",
+                ver_arg: "version",
+                build_cmd_str: "odin",
+                build_args: &["build"],
+                exe_flag: Some(("-file -out:", ArgsPosition::Post)),
+                fn_build_files: None,
+            };
+            Ok(Box::new(odin_lang))
+        }
         "py" | "py3" => {
             let py_lang = RuntimeLang {
                 name: "python",
@@ -237,7 +249,7 @@ pub fn get_prog_lang(lang_ext: &str) -> Result<Box<dyn ProgLang>, OwlError> {
                 ver_arg: "--version",
                 build_cmd_str: "rustc",
                 build_args: &["-C", "opt-level=3", "-C", "target-cpu=native"],
-                exe_flag: Some("-o"),
+                exe_flag: Some(("-o", ArgsPosition::Post)),
                 fn_build_files: None,
             };
             Ok(Box::new(rust_lang))
@@ -262,7 +274,7 @@ pub fn get_prog_lang(lang_ext: &str) -> Result<Box<dyn ProgLang>, OwlError> {
                 ver_arg: "version",
                 build_cmd_str: "zig",
                 build_args: &["build-exe", "-O", "ReleaseFast"],
-                exe_flag: Some("-femit-bin="),
+                exe_flag: Some(("-femit-bin=", ArgsPosition::Pre)),
                 fn_build_files: None,
             };
             Ok(Box::new(zig_lang))
@@ -271,13 +283,20 @@ pub fn get_prog_lang(lang_ext: &str) -> Result<Box<dyn ProgLang>, OwlError> {
     }
 }
 
-pub struct ComptimeLang {
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum ArgsPosition {
+    Post,
+    Pre,
+}
+
+#[derive(Debug)]
+struct ComptimeLang {
     name: &'static str,
     cmd_str: &'static str,
     ver_arg: &'static str,
     build_cmd_str: &'static str,
     build_args: &'static [&'static str],
-    exe_flag: Option<&'static str>,
+    exe_flag: Option<(&'static str, ArgsPosition)>,
     fn_build_files: Option<fn(&str) -> Vec<String>>,
 }
 
@@ -292,15 +311,30 @@ impl ProgLang for ComptimeLang {
             .ok_or(file_error!(filename))?
             .to_string();
 
-        if let Some(flag) = self.exe_flag {
-            if flag.contains('=') {
-                cmd.arg(format!("{}{}", flag, &target_stem));
+        if let Some((flag, pos)) = self.exe_flag {
+            if pos == ArgsPosition::Post {
+                cmd.arg(filename);
+            }
+
+            if flag.contains('=') || flag.contains(':') {
+                let exe_arg = format!("{}{}", flag, &target_stem);
+
+                if exe_arg.contains(' ') {
+                    let split = exe_arg.split(' ').collect::<Vec<&str>>();
+                    cmd.args(split);
+                } else {
+                    cmd.arg(exe_arg);
+                }
             } else {
                 cmd.args(&[flag, &target_stem]);
             }
-        }
 
-        cmd.arg(filename);
+            if pos == ArgsPosition::Pre {
+                cmd.arg(filename);
+            }
+        } else {
+            cmd.arg(filename);
+        }
 
         Ok(cmd)
     }
