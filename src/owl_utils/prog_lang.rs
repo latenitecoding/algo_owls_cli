@@ -30,6 +30,28 @@ pub fn check_prog_lang(prog: &str) -> Option<Box<dyn ProgLang>> {
 
 pub fn get_prog_lang(lang: &str) -> Result<Box<dyn ProgLang>, OwlError> {
     match lang {
+        "c" => {
+            let c_lang = CommonLang {
+                name: "c",
+                cmd: "gcc",
+                ver_arg: "--version",
+                build_cmd: "gcc",
+                build_args: &["-g", "-O2", "-std=gnu23", "-static", "-lm"],
+                exe_flag: Some("-o"),
+            };
+            Ok(Box::new(c_lang))
+        }
+        "cpp" | "cc" | "C" | "cxx" | "c++" => {
+            let cpp_lang = CommonLang {
+                name: "cpp",
+                cmd: "g++",
+                ver_arg: "--version",
+                build_cmd: "g++",
+                build_args: &["-g", "-O2", "-std=gnu++23", "-static", "-lrt", "-lpthread"],
+                exe_flag: Some("-o"),
+            };
+            Ok(Box::new(cpp_lang))
+        }
         "go" => {
             let go_lang = CommonLang {
                 name: "go",
@@ -37,6 +59,7 @@ pub fn get_prog_lang(lang: &str) -> Result<Box<dyn ProgLang>, OwlError> {
                 ver_arg: "version",
                 build_cmd: "go",
                 build_args: &["build"],
+                exe_flag: Some("-o"),
             };
             Ok(Box::new(go_lang))
         }
@@ -63,6 +86,7 @@ pub fn get_prog_lang(lang: &str) -> Result<Box<dyn ProgLang>, OwlError> {
                 ver_arg: "--version",
                 build_cmd: "rustc",
                 build_args: &["-C", "opt-level=3", "-C", "target-cpu=native"],
+                exe_flag: Some("-o"),
             };
             Ok(Box::new(rust_lang))
         }
@@ -73,6 +97,7 @@ pub fn get_prog_lang(lang: &str) -> Result<Box<dyn ProgLang>, OwlError> {
                 ver_arg: "version",
                 build_cmd: "zig",
                 build_args: &["build-exe", "-O", "ReleaseFast"],
+                exe_flag: Some("-femit-bin="),
             };
             Ok(Box::new(zig_lang))
         }
@@ -86,6 +111,7 @@ pub struct CommonLang {
     ver_arg: &'static str,
     build_cmd: &'static str,
     build_args: &'static [&'static str],
+    exe_flag: Option<&'static str>,
 }
 
 impl ProgLang for CommonLang {
@@ -94,8 +120,24 @@ impl ProgLang for CommonLang {
     }
 
     fn build(&self, filename: &str) -> Result<BuildLog, OwlError> {
-        let output = Command::new(self.build_cmd)
-            .args(self.build_args)
+        let mut child = Command::new(self.build_cmd);
+        child.args(self.build_args);
+
+        let target = Path::new(filename)
+            .file_stem()
+            .and_then(OsStr::to_str)
+            .ok_or(file_error!(filename))?
+            .to_string();
+
+        if let Some(flag) = self.exe_flag {
+            if flag.contains('=') {
+                child.arg(format!("{}{}", flag, &target));
+            } else {
+                child.args(&[flag, &target]);
+            }
+        }
+
+        let output = child
             .arg(filename)
             .output()
             .map_err(|e| program_error!(e))?;
