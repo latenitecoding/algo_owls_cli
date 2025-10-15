@@ -118,6 +118,23 @@ fn cli() -> Command {
                 .arg(arg!(--stash "Removes all stashed programs"))
                 .arg(arg!(--all "Removes all test cases and stashed programs")),
         )
+        .subcommand(
+            Command::new("remote")
+                .about("sets the stash to branch main on the git remote")
+                .arg(arg!(<REMOTE> "The git remote"))
+                .arg(arg!(-f --force "Replaces the current git remote"))
+                .arg_required_else_help(true),
+        )
+        .subcommand(
+            Command::new("sync")
+                .about("syncs the stash directory to match the remote")
+                .arg(arg!(-f --force "Removes all local changes")),
+        )
+        .subcommand(
+            Command::new("push")
+                .about("pushes all stashed solutions to the remote")
+                .arg(arg!(-f --force "Forces the remote to match the local stash")),
+        )
 }
 
 fn add(name: &str, url: &str, and_fetch: bool) -> Result<(), OwlError> {
@@ -219,6 +236,33 @@ fn init_program(prog: &str) -> Result<(), OwlError> {
     stash_path.push(stash_file);
 
     fs_utils::copy_file(check_path!(stash_path)?, prog)
+}
+
+fn push_git_remote(force: bool) -> Result<(), OwlError> {
+    let mut stash_path = fs_utils::ensure_dir_from_home(&[OWL_DIR, STASH_DIR])?;
+    stash_path.push(".git");
+
+    if !stash_path.exists() {
+        return Err(file_not_found!(check_path!(stash_path)?));
+    }
+
+    stash_path.pop();
+
+    let stash_dir = check_path!(stash_path)?;
+
+    let stdout = cmd_utils::git_add(stash_dir)?;
+    println!("{}", stdout);
+
+    let stdout = cmd_utils::git_commit(stash_dir)?;
+    println!("{}", stdout);
+
+    let stdout = cmd_utils::git_push(stash_dir, "origin", "main", force)?;
+    println!("{}", stdout);
+
+    let stdout = cmd_utils::git_status(stash_dir)?;
+    println!("{}", stdout);
+
+    Ok(())
 }
 
 fn quest(
@@ -342,6 +386,66 @@ fn run(prog: &str) -> Result<(), OwlError> {
             Ok(())
         }
     }
+}
+
+fn set_git_remote(remote: &str, force: bool) -> Result<(), OwlError> {
+    let mut stash_path = fs_utils::ensure_dir_from_home(&[OWL_DIR, STASH_DIR])?;
+    stash_path.push(".git");
+
+    if stash_path.exists() && !force {
+        return Err(file_error!(".git directory already exists"));
+    }
+
+    if stash_path.exists() && force {
+        fs_utils::remove_path(check_path!(stash_path)?)?;
+    }
+
+    stash_path.pop();
+
+    let stash_dir = check_path!(stash_path)?;
+
+    let stdout = cmd_utils::git_init(stash_dir)?;
+    println!("{}", stdout);
+
+    let stdout = cmd_utils::git_remote_add(stash_dir, "origin", remote)?;
+    println!("{}", stdout);
+
+    let stdout = cmd_utils::git_checkout(stash_dir, "main")?;
+    println!("{}", stdout);
+
+    let stdout = cmd_utils::git_status(stash_dir)?;
+    println!("{}", stdout);
+
+    Ok(())
+}
+
+fn sync_git_remote(force: bool) -> Result<(), OwlError> {
+    let mut stash_path = fs_utils::ensure_dir_from_home(&[OWL_DIR, STASH_DIR])?;
+    stash_path.push(".git");
+
+    if !stash_path.exists() {
+        return Err(file_not_found!(check_path!(stash_path)?));
+    }
+
+    stash_path.pop();
+
+    let stash_dir = check_path!(stash_path)?;
+
+    let stdout = cmd_utils::git_fetch(stash_dir, "origin", "main")?;
+    println!("{}", stdout);
+
+    if force {
+        let stdout = cmd_utils::git_reset(stash_dir, "origin", "main")?;
+        println!("{}", stdout);
+    }
+
+    let stdout = cmd_utils::git_pull(stash_dir, "origin", "main")?;
+    println!("{}", stdout);
+
+    let stdout = cmd_utils::git_status(stash_dir)?;
+    println!("{}", stdout);
+
+    Ok(())
 }
 
 fn show(
@@ -569,6 +673,28 @@ fn main() {
             let all = sub_matches.get_one::<bool>("all").map_or(false, |&f| f);
 
             if let Err(e) = clear_stash(stash, all) {
+                report_owl_err!(&e);
+            }
+        }
+        Some(("remote", sub_matches)) => {
+            let remote = sub_matches.get_one::<String>("REMOTE").expect("required");
+            let force = sub_matches.get_one::<bool>("force").map_or(false, |&f| f);
+
+            if let Err(e) = set_git_remote(remote, force) {
+                report_owl_err!(&e);
+            }
+        }
+        Some(("sync", sub_matches)) => {
+            let force = sub_matches.get_one::<bool>("force").map_or(false, |&f| f);
+
+            if let Err(e) = sync_git_remote(force) {
+                report_owl_err!(&e);
+            }
+        }
+        Some(("push", sub_matches)) => {
+            let force = sub_matches.get_one::<bool>("force").map_or(false, |&f| f);
+
+            if let Err(e) = push_git_remote(force) {
                 report_owl_err!(&e);
             }
         }
