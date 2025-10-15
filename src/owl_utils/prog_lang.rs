@@ -149,6 +149,18 @@ pub fn get_prog_lang(lang_ext: &str) -> Result<Box<dyn ProgLang>, OwlError> {
             };
             Ok(Box::new(crystal_lang))
         }
+        "dart" => {
+            let dart_lang = ComptimeLang {
+                name: "dart",
+                cmd_str: "dart",
+                ver_arg: "--version",
+                build_cmd_str: "dart",
+                build_args: &["compile", "exe"],
+                exe_flag: Some(("-o", ArgsPosition::Pre)),
+                fn_build_files: None,
+            };
+            Ok(Box::new(dart_lang))
+        }
         "go" => {
             let go_lang = ComptimeLang {
                 name: "go",
