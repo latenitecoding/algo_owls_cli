@@ -29,37 +29,40 @@ pub fn check_prog_lang(prog: &str) -> Option<Box<dyn ProgLang>> {
 
 pub fn get_prog_lang(lang: &str) -> Result<Box<dyn ProgLang>, OwlError> {
     match lang {
-        "zig" => Ok(Box::new(ZigLang::new())),
+        "zig" => {
+            let zig = CommonLang {
+                name: "zig",
+                cmd: "zig",
+                ver_arg: "version",
+                build_cmd: "build-exe",
+                build_args: &["-O", "ReleaseFast"],
+            };
+            Ok(Box::new(zig))
+        }
         _ => Err(not_supported!(lang)),
     }
 }
 
-pub struct ZigLang {
+pub struct CommonLang {
+    name: &'static str,
     cmd: &'static str,
     ver_arg: &'static str,
+    build_cmd: &'static str,
+    build_args: &'static [&'static str],
 }
 
-impl ZigLang {
-    pub fn new() -> Self {
-        ZigLang {
-            cmd: "zig",
-            ver_arg: "version",
-        }
-    }
-}
-
-impl ProgLang for ZigLang {
+impl ProgLang for CommonLang {
     fn name(&self) -> &str {
-        self.cmd
+        self.name
     }
 
     fn build(&self, filename: &str) -> Result<BuildLog, OwlError> {
         let output = Command::new(self.cmd)
-            .arg("build-exe")
-            .args(["-O", "ReleaseFast"])
+            .arg(self.build_cmd)
+            .args(self.build_args)
             .arg(filename)
             .output()
-            .expect("'zig build-exe' should be recognized");
+            .map_err(|e| program_error!(e))?;
 
         let stdout = String::from_utf8(output.stdout)
             .map_err(|e| file_error!(e))?
