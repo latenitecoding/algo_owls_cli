@@ -40,6 +40,14 @@ pub fn get_prog_lang(lang: &str) -> Result<Box<dyn ProgLang>, OwlError> {
             };
             Ok(Box::new(go_lang))
         }
+        "jl" => {
+            let julia_lang = RuntimeLang {
+                name: "julia",
+                cmd: "julia",
+                ver_arg: "--version",
+            };
+            Ok(Box::new(julia_lang))
+        }
         "py" | "py3" => {
             let py_lang = RuntimeLang {
                 name: "python",
