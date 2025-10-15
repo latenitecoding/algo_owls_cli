@@ -78,6 +78,7 @@ fn cli() -> Command {
                 .arg(arg!(<PROG> "The program to test"))
                 .arg(arg!(-t --test <TEST> "The specific test to run by name"))
                 .arg(arg!(-c --case <CASE> "The specific test to run by case number"))
+                .arg(arg!(-r --rand "Test against a random test case"))
                 .arg_required_else_help(true),
         )
         .subcommand(
@@ -86,6 +87,7 @@ fn cli() -> Command {
                 .arg(arg!(<NAME> "The name of the quest"))
                 .arg(arg!(-t --test <TEST> "The specific test to print by name"))
                 .arg(arg!(-c --case <CASE> "The specific test to print by case number"))
+                .arg(arg!(-r --rand "Print a random test case"))
                 .arg(arg!(-a --ans "Print the answer instead of the input"))
                 .arg_required_else_help(true),
         )
@@ -196,7 +198,7 @@ fn quest(
             }
         }
 
-        if case_id > 0 && count != case_id {
+        if case_id > 0 && count != (case_id % total) {
             continue;
         }
 
@@ -290,7 +292,7 @@ fn show(
     let test_cases: Vec<String> = fs_utils::find_by_ext(quest_dir, "in")?;
 
     if case_id > 0 {
-        return show_it(&test_cases[case_id - 1], show_ans);
+        return show_it(&test_cases[(case_id - 1) & test_cases.len()], show_ans);
     }
 
     for test_case in test_cases {
@@ -415,9 +417,14 @@ fn main() {
             let name = sub_matches.get_one::<String>("NAME").expect("required");
             let prog = sub_matches.get_one::<String>("PROG").expect("required");
             let test = sub_matches.get_one::<String>("test");
-            let case = sub_matches
+            let mut case = sub_matches
                 .get_one::<String>("case")
                 .map_or(0, |s| s.parse().expect("case id should be a number"));
+            let rand = sub_matches.get_one::<bool>("rand").map_or(false, |&f| f);
+
+            if rand {
+                case = rand::random::<u64>() as usize;
+            }
 
             if let Err(e) = quest(name, prog, test, case) {
                 report_owl_err!(&e);
@@ -426,10 +433,15 @@ fn main() {
         Some(("show", sub_matches)) => {
             let name = sub_matches.get_one::<String>("NAME").expect("required");
             let test = sub_matches.get_one::<String>("test");
-            let case = sub_matches
+            let mut case = sub_matches
                 .get_one::<String>("case")
                 .map_or(0, |s| s.parse().expect("case id should be a number"));
+            let rand = sub_matches.get_one::<bool>("rand").map_or(false, |&f| f);
             let ans = sub_matches.get_one::<bool>("ans").map_or(false, |&f| f);
+
+            if rand {
+                case = rand::random::<u64>() as usize;
+            }
 
             if let Err(e) = show(name, test, case, ans) {
                 report_owl_err!(&e);
