@@ -157,7 +157,7 @@ fn add(name: &str, url: &str, and_fetch: bool) -> Result<(), OwlError> {
     Ok(())
 }
 
-fn build_program(prog: &str) -> Result<String, OwlError> {
+fn build_program(prog: &str) -> Result<Option<prog_lang::BuildLog>, OwlError> {
     match prog_lang::check_prog_lang(prog) {
         Some(lang) => {
             if !lang.command_exists() {
@@ -168,13 +168,31 @@ fn build_program(prog: &str) -> Result<String, OwlError> {
                 let build_log = lang.build(prog)?;
                 println!("{}", build_log.stdout);
 
-                Ok(build_log.target)
+                Ok(Some(build_log))
             } else {
-                Ok(prog.to_string())
+                Ok(None)
             }
         }
-        None => Ok(prog.to_string()),
+        None => Ok(None),
     }
+}
+
+fn cleanup_program(
+    prog: &str,
+    target: &str,
+    build_files: Option<Vec<String>>,
+) -> Result<(), OwlError> {
+    if target != prog {
+        fs_utils::remove_path(&target)?;
+    }
+
+    if let Some(build_files) = &build_files {
+        for build_file in build_files {
+            fs_utils::remove_path(&build_file)?;
+        }
+    }
+
+    Ok(())
 }
 
 fn clear_stash(only_stash: bool, all_files: bool) -> Result<(), OwlError> {
@@ -290,7 +308,10 @@ fn quest(
         return Err(file_not_found!(prog));
     }
 
-    let target = build_program(prog)?;
+    let (target, build_files) = match build_program(prog)? {
+        Some(bl) => (bl.target, bl.build_files),
+        None => (prog.to_string(), None),
+    };
 
     let test_cases: Vec<String> = fs_utils::find_by_ext(quest_dir, "in")?;
     let total = test_cases.len();
@@ -326,9 +347,7 @@ fn quest(
 
     println!("passed: {}, failed: {}", passed, failed);
 
-    if target != prog {
-        fs_utils::remove_path(&target)?;
-    }
+    cleanup_program(prog, &target, build_files)?;
 
     if failed > 0 {
         Err(test_failure!("test failures"))
@@ -379,13 +398,14 @@ fn run(prog: &str) -> Result<(), OwlError> {
 
     match prog_lang::check_prog_lang(prog) {
         Some(lang) => {
-            let target = build_program(prog)?;
+            let (target, build_files) = match build_program(prog)? {
+                Some(bl) => (bl.target, bl.build_files),
+                None => (prog.to_string(), None),
+            };
 
             let run_result = lang.run(&target);
 
-            if target != prog {
-                fs_utils::remove_path(&target)?;
-            }
+            cleanup_program(prog, &target, build_files)?;
 
             run_result.map(|stdout| println!("{}", stdout))
         }
@@ -526,13 +546,14 @@ fn stash(prog: &str, as_templ: bool) -> Result<(), OwlError> {
 fn test(prog: &str, in_file: &str, ans_file: &str) -> Result<(), OwlError> {
     match prog_lang::check_prog_lang(prog) {
         Some(_) => {
-            let target = build_program(prog)?;
+            let (target, build_files) = match build_program(prog)? {
+                Some(bl) => (bl.target, bl.build_files),
+                None => (prog.to_string(), None),
+            };
 
             let test_result = test_it(&target, in_file, ans_file);
 
-            if target != prog {
-                fs_utils::remove_path(&target)?;
-            }
+            cleanup_program(prog, &target, build_files)?;
 
             test_result
         }

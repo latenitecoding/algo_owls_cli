@@ -7,6 +7,7 @@ use super::owl_error::{OwlError, file_error, not_supported, program_error};
 
 pub trait ProgLang {
     fn build_cmd(&self, filename: &str) -> Result<Command, OwlError>;
+    fn build_files(&self, target_stem: &str) -> Option<Vec<String>>;
     fn name(&self) -> &str;
     fn run_it(&self, target: &str, stdin: Option<&str>) -> Result<String, OwlError>;
     fn should_build(&self) -> bool;
@@ -33,7 +34,13 @@ pub trait ProgLang {
                 .ok_or(file_error!(filename))?;
             let target = self.target_name(target_stem);
 
-            Ok(BuildLog { target, stdout })
+            let build_files = self.build_files(target_stem);
+
+            Ok(BuildLog {
+                target,
+                stdout,
+                build_files,
+            })
         } else {
             Err(program_error!(stderr))
         }
@@ -73,6 +80,7 @@ pub trait ProgLang {
 pub struct BuildLog {
     pub target: String,
     pub stdout: String,
+    pub build_files: Option<Vec<String>>,
 }
 
 pub fn check_prog_lang(prog: &str) -> Option<Box<dyn ProgLang>> {
@@ -92,6 +100,7 @@ pub fn get_prog_lang(lang_ext: &str) -> Result<Box<dyn ProgLang>, OwlError> {
                 build_cmd_str: "gcc",
                 build_args: &["-g", "-O2", "-std=gnu23", "-static", "-lm"],
                 exe_flag: Some("-o"),
+                fn_build_files: None,
             };
             Ok(Box::new(c_lang))
         }
@@ -103,6 +112,7 @@ pub fn get_prog_lang(lang_ext: &str) -> Result<Box<dyn ProgLang>, OwlError> {
                 build_cmd_str: "g++",
                 build_args: &["-g", "-O2", "-std=gnu++23", "-static", "-lrt", "-lpthread"],
                 exe_flag: Some("-o"),
+                fn_build_files: None,
             };
             Ok(Box::new(cpp_lang))
         }
@@ -114,6 +124,7 @@ pub fn get_prog_lang(lang_ext: &str) -> Result<Box<dyn ProgLang>, OwlError> {
                 build_cmd_str: "go",
                 build_args: &["build"],
                 exe_flag: Some("-o"),
+                fn_build_files: None,
             };
             Ok(Box::new(go_lang))
         }
@@ -122,10 +133,11 @@ pub fn get_prog_lang(lang_ext: &str) -> Result<Box<dyn ProgLang>, OwlError> {
                 name: "java",
                 build_cmd_str: "javac",
                 build_args: &["-encoding", "UTF-8"],
-                fn_target_name: |target_stem| format!("{}.class", target_stem),
                 run_cmd_str: "java",
                 run_args: &["-Dfile.encoding=UTF-8", "-XX:+UseSerialGC", "-Xss64m"],
                 ver_arg: "--version",
+                fn_target_name: |target_stem| format!("{}.class", target_stem),
+                fn_build_files: None,
             };
             Ok(Box::new(java_lang))
         }
@@ -142,6 +154,9 @@ pub fn get_prog_lang(lang_ext: &str) -> Result<Box<dyn ProgLang>, OwlError> {
                 name: "kotlin",
                 build_cmd_str: "kotlinc",
                 build_args: &[],
+                run_cmd_str: "kotlin",
+                run_args: &["-J-XX:+UseSerialGC", "-J-Xss64m"],
+                ver_arg: "-version",
                 fn_target_name: |target_stem| {
                     let mut chars = target_stem.chars();
                     let first_char = chars
@@ -150,9 +165,7 @@ pub fn get_prog_lang(lang_ext: &str) -> Result<Box<dyn ProgLang>, OwlError> {
                         .to_uppercase();
                     format!("{}{}Kt.class", first_char, chars.as_str())
                 },
-                run_cmd_str: "kotlin",
-                run_args: &["-J-XX:+UseSerialGC", "-J-Xss64m"],
-                ver_arg: "-version",
+                fn_build_files: Some(|_| vec!["META-INF".to_string()]),
             };
             Ok(Box::new(kotlin_lang))
         }
@@ -172,6 +185,7 @@ pub fn get_prog_lang(lang_ext: &str) -> Result<Box<dyn ProgLang>, OwlError> {
                 build_cmd_str: "rustc",
                 build_args: &["-C", "opt-level=3", "-C", "target-cpu=native"],
                 exe_flag: Some("-o"),
+                fn_build_files: None,
             };
             Ok(Box::new(rust_lang))
         }
@@ -183,6 +197,7 @@ pub fn get_prog_lang(lang_ext: &str) -> Result<Box<dyn ProgLang>, OwlError> {
                 build_cmd_str: "zig",
                 build_args: &["build-exe", "-O", "ReleaseFast"],
                 exe_flag: Some("-femit-bin="),
+                fn_build_files: None,
             };
             Ok(Box::new(zig_lang))
         }
@@ -197,6 +212,7 @@ pub struct ComptimeLang {
     build_cmd_str: &'static str,
     build_args: &'static [&'static str],
     exe_flag: Option<&'static str>,
+    fn_build_files: Option<fn(&str) -> Vec<String>>,
 }
 
 impl ProgLang for ComptimeLang {
@@ -221,6 +237,14 @@ impl ProgLang for ComptimeLang {
         cmd.arg(filename);
 
         Ok(cmd)
+    }
+
+    fn build_files(&self, target_stem: &str) -> Option<Vec<String>> {
+        if let Some(foo) = self.fn_build_files {
+            Some((foo)(target_stem))
+        } else {
+            None
+        }
     }
 
     fn name(&self) -> &str {
@@ -265,6 +289,10 @@ impl ProgLang for RuntimeLang {
         )))
     }
 
+    fn build_files(&self, _: &str) -> Option<Vec<String>> {
+        None
+    }
+
     fn name(&self) -> &str {
         self.name
     }
@@ -299,10 +327,11 @@ pub struct CustomLang {
     name: &'static str,
     build_cmd_str: &'static str,
     build_args: &'static [&'static str],
-    fn_target_name: fn(&str) -> String,
     run_cmd_str: &'static str,
     run_args: &'static [&'static str],
     ver_arg: &'static str,
+    fn_build_files: Option<fn(&str) -> Vec<String>>,
+    fn_target_name: fn(&str) -> String,
 }
 
 impl ProgLang for CustomLang {
@@ -312,6 +341,14 @@ impl ProgLang for CustomLang {
         cmd.arg(filename);
 
         Ok(cmd)
+    }
+
+    fn build_files(&self, target_stem: &str) -> Option<Vec<String>> {
+        if let Some(foo) = self.fn_build_files {
+            Some((foo)(target_stem))
+        } else {
+            None
+        }
     }
 
     fn name(&self) -> &str {
