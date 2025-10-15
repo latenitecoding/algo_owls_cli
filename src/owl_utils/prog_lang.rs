@@ -92,6 +92,27 @@ pub fn check_prog_lang(prog: &str) -> Option<Box<dyn ProgLang>> {
 
 pub fn get_prog_lang(lang_ext: &str) -> Result<Box<dyn ProgLang>, OwlError> {
     match lang_ext {
+        "adb" | "ads" => {
+            let ada_lang = ComptimeLang {
+                name: "ada",
+                cmd_str: "gnatmake",
+                ver_arg: "--version",
+                build_cmd_str: "gnatmake",
+                build_args: &["-g", "-O2"],
+                exe_flag: Some("-o"),
+                fn_build_files: Some(|target_stem| {
+                    vec![
+                        format!("b~{}.adb", target_stem),
+                        format!("b~{}.ads", target_stem),
+                        format!("b~{}.ali", target_stem),
+                        format!("b~{}.o", target_stem),
+                        format!("{}.ali", target_stem),
+                        format!("{}.o", target_stem),
+                    ]
+                }),
+            };
+            Ok(Box::new(ada_lang))
+        }
         "c" => {
             let c_lang = ComptimeLang {
                 name: "c",
