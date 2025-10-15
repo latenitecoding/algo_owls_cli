@@ -12,7 +12,8 @@ pub trait ProgLang {
     fn command_exists(&self) -> bool;
     fn run(&self, target: &str) -> Result<String, OwlError>;
     fn run_with_stdin(&self, target: &str, input: &str) -> Result<String, OwlError>;
-    fn version(&self) -> Option<String>;
+    fn should_build(&self) -> bool;
+    fn version(&self) -> Result<String, OwlError>;
 }
 
 pub struct BuildLog {
@@ -38,6 +39,14 @@ pub fn get_prog_lang(lang: &str) -> Result<Box<dyn ProgLang>, OwlError> {
                 build_args: &["build"],
             };
             Ok(Box::new(go_lang))
+        }
+        "py" | "py3" => {
+            let py_lang = RuntimeLang {
+                name: "python",
+                cmd: "python3",
+                ver_arg: "--version",
+            };
+            Ok(Box::new(py_lang))
         }
         "rs" => {
             let rust_lang = CommonLang {
@@ -104,7 +113,7 @@ impl ProgLang for CommonLang {
     }
 
     fn command_exists(&self) -> bool {
-        self.version().is_some()
+        self.version().is_ok()
     }
 
     fn run(&self, target: &str) -> Result<String, OwlError> {
@@ -115,12 +124,85 @@ impl ProgLang for CommonLang {
         cmd_utils::run_binary_with_stdin(target, input)
     }
 
-    fn version(&self) -> Option<String> {
-        let res = Command::new(self.cmd).arg(self.ver_arg).output();
+    fn should_build(&self) -> bool {
+        true
+    }
 
-        match res {
-            Ok(output) => Some(String::from_utf8_lossy(&output.stdout).to_string()),
-            Err(_) => None,
+    fn version(&self) -> Result<String, OwlError> {
+        let output = Command::new(self.cmd)
+            .arg(self.ver_arg)
+            .output()
+            .map_err(|e| program_error!(e))?;
+
+        if output.status.success() {
+            Ok(String::from_utf8(output.stdout)
+                .map_err(|e| file_error!(e))?
+                .to_string())
+        } else {
+            Err(program_error!(format!(
+                "Unable to determine version of '{}'",
+                self.name()
+            )))
+        }
+    }
+}
+
+pub struct RuntimeLang {
+    name: &'static str,
+    cmd: &'static str,
+    ver_arg: &'static str,
+}
+
+impl ProgLang for RuntimeLang {
+    fn name(&self) -> &str {
+        self.name
+    }
+
+    fn build(&self, filename: &str) -> Result<BuildLog, OwlError> {
+        Err(program_error!(format!(
+            "No build command ({}) for '{}'",
+            self.name(),
+            filename
+        )))
+    }
+
+    fn command_exists(&self) -> bool {
+        self.version().is_ok()
+    }
+
+    fn run(&self, target: &str) -> Result<String, OwlError> {
+        let mut run_cmd = Command::new(self.cmd);
+        run_cmd.arg(target);
+
+        cmd_utils::run_cmd(run_cmd)
+    }
+
+    fn run_with_stdin(&self, target: &str, input: &str) -> Result<String, OwlError> {
+        let mut run_cmd = Command::new(self.cmd);
+        run_cmd.arg(target);
+
+        cmd_utils::run_cmd_with_stdin(run_cmd, input)
+    }
+
+    fn should_build(&self) -> bool {
+        false
+    }
+
+    fn version(&self) -> Result<String, OwlError> {
+        let output = Command::new(self.cmd)
+            .arg(self.ver_arg)
+            .output()
+            .map_err(|e| program_error!(e))?;
+
+        if output.status.success() {
+            Ok(String::from_utf8(output.stdout)
+                .map_err(|e| file_error!(e))?
+                .to_string())
+        } else {
+            Err(program_error!(format!(
+                "Unable to determine version of '{}'",
+                self.name()
+            )))
         }
     }
 }

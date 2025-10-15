@@ -164,10 +164,14 @@ fn build_program(prog: &str) -> Result<String, OwlError> {
                 return Err(command_not_found!(lang.name()));
             }
 
-            let build_log = lang.build(prog)?;
-            println!("{}", build_log.stdout);
+            if lang.should_build() {
+                let build_log = lang.build(prog)?;
+                println!("{}", build_log.stdout);
 
-            Ok(build_log.target)
+                Ok(build_log.target)
+            } else {
+                Ok(prog.to_string())
+            }
         }
         None => Ok(prog.to_string()),
     }
@@ -322,7 +326,9 @@ fn quest(
 
     println!("passed: {}, failed: {}", passed, failed);
 
-    fs_utils::remove_path(&target)?;
+    if target != prog {
+        fs_utils::remove_path(&target)?;
+    }
 
     if failed > 0 {
         Err(test_failure!("test failures"))
@@ -377,7 +383,9 @@ fn run(prog: &str) -> Result<(), OwlError> {
 
             let run_result = lang.run(&target);
 
-            fs_utils::remove_path(&target)?;
+            if target != prog {
+                fs_utils::remove_path(&target)?;
+            }
 
             run_result.map(|stdout| println!("{}", stdout))
         }
@@ -522,7 +530,9 @@ fn test(prog: &str, in_file: &str, ans_file: &str) -> Result<(), OwlError> {
 
             let test_result = test_it(&target, in_file, ans_file);
 
-            fs_utils::remove_path(&target)?;
+            if target != prog {
+                fs_utils::remove_path(&target)?;
+            }
 
             test_result
         }
