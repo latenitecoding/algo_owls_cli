@@ -66,6 +66,26 @@ pub fn create_toml_with_entry(
     return Ok(());
 }
 
+pub fn copy_file(src: &str, dst: &str) -> Result<(), OwlError> {
+    if !Path::new(src).exists() {
+        return Err(file_not_found!(src));
+    }
+
+    let mut src_file = OpenOptions::new()
+        .read(true)
+        .open(src)
+        .map_err(|e| file_error!(e))?;
+    let mut dst_file = OpenOptions::new()
+        .create(true)
+        .write(true)
+        .open(dst)
+        .map_err(|e| file_error!(e))?;
+
+    copy(&mut src_file, &mut dst_file).map_err(|e| file_error!(e))?;
+
+    Ok(())
+}
+
 pub fn download_file(url: &str, out: &str) -> Result<(), OwlError> {
     let mut resp = reqwest::blocking::get(url).map_err(|e| net_error!(e))?;
     let mut file = File::create(out).map_err(|e| file_error!(e))?;
@@ -74,9 +94,11 @@ pub fn download_file(url: &str, out: &str) -> Result<(), OwlError> {
     Ok(())
 }
 
-pub fn ensure_dir_from_home(dir: &str) -> Result<PathBuf, OwlError> {
+pub fn ensure_dir_from_home(dirs: &[&str]) -> Result<PathBuf, OwlError> {
     let mut dir_path = dirs::home_dir().ok_or(file_error!("$HOME"))?;
-    dir_path.push(dir);
+    for dir in dirs {
+        dir_path.push(dir);
+    }
 
     if !dir_path.exists() {
         fs::create_dir_all(&dir_path).map_err(|e| file_error!(e))?;

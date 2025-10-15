@@ -8,7 +8,9 @@ use owl_utils::{cmd_utils, fs_utils, owl_error::OwlError, prog_lang};
 
 const OWL_DIR: &str = ".owl";
 const MANIFEST: &str = ".manifest.toml";
+const TEMPLATE_STEM: &str = ".template";
 const TMP_ARCHIVE: &str = ".tmp.zip";
+const STASH_DIR: &str = ".stash";
 
 const TOML_TEMPLATE: &str = r#"
 [manifest]
@@ -91,13 +93,19 @@ fn cli() -> Command {
                 .arg(arg!(-a --ans "Print the answer instead of the input"))
                 .arg_required_else_help(true),
         )
+        .subcommand(
+            Command::new("stash")
+                .about("stashes the program away for later")
+                .arg(arg!(<PROG> "The program to stash"))
+                .arg_required_else_help(true),
+        )
 }
 
 fn add(name: &str, url: &str, and_fetch: bool) -> Result<(), OwlError> {
     // this should always rewrite entries in the personal table
     // of the manifest TOML, which is the last table in the manifest
     // new entires can always be appended
-    let mut manifest_path = fs_utils::ensure_dir_from_home(OWL_DIR)?;
+    let mut manifest_path = fs_utils::ensure_dir_from_home(&[OWL_DIR])?;
     manifest_path.push(MANIFEST);
 
     if !manifest_path.exists() {
@@ -130,7 +138,7 @@ fn build_program(prog: &str) -> Result<String, OwlError> {
 }
 
 fn fetch(name: &str, dir: &str) -> Result<(), OwlError> {
-    let mut manifest_path = fs_utils::ensure_dir_from_home(OWL_DIR)?;
+    let mut manifest_path = fs_utils::ensure_dir_from_home(&[OWL_DIR])?;
     manifest_path.push(MANIFEST);
 
     if !manifest_path.exists() {
@@ -147,7 +155,7 @@ fn fetch(name: &str, dir: &str) -> Result<(), OwlError> {
 }
 
 fn fetch_by_name(name: &str) -> Result<(), OwlError> {
-    let mut fetch_path = fs_utils::ensure_dir_from_home(OWL_DIR)?;
+    let mut fetch_path = fs_utils::ensure_dir_from_home(&[OWL_DIR])?;
     fetch_path.push(name);
 
     fetch(name, check_path!(fetch_path)?)
@@ -159,7 +167,7 @@ fn quest(
     test_name: Option<&String>,
     case_id: usize,
 ) -> Result<(), OwlError> {
-    let mut quest_path = fs_utils::ensure_dir_from_home(OWL_DIR)?;
+    let mut quest_path = fs_utils::ensure_dir_from_home(&[OWL_DIR])?;
     quest_path.push(name);
 
     let quest_dir = check_path!(quest_path)?.to_string();
@@ -275,7 +283,7 @@ fn show(
     case_id: usize,
     show_ans: bool,
 ) -> Result<(), OwlError> {
-    let mut quest_path = fs_utils::ensure_dir_from_home(OWL_DIR)?;
+    let mut quest_path = fs_utils::ensure_dir_from_home(&[OWL_DIR])?;
     quest_path.push(name);
 
     let quest_dir = check_path!(quest_path)?.to_string();
@@ -314,6 +322,21 @@ fn show_it(target_file: &str, show_ans: bool) -> Result<(), OwlError> {
     println!("{}", contents);
 
     Ok(())
+}
+
+fn stash(prog: &str) -> Result<(), OwlError> {
+    let mut stash_path = fs_utils::ensure_dir_from_home(&[OWL_DIR, STASH_DIR])?;
+
+    let ext = Path::new(prog)
+        .extension()
+        .and_then(OsStr::to_str)
+        .ok_or(file_error!(prog))?;
+
+    let stash_file = format!("{}.{}", TEMPLATE_STEM, ext);
+
+    stash_path.push(stash_file);
+
+    fs_utils::copy_file(prog, check_path!(stash_path)?)
 }
 
 fn test(prog: &str, in_file: &str, ans_file: &str) -> Result<(), OwlError> {
@@ -444,6 +467,13 @@ fn main() {
             }
 
             if let Err(e) = show(name, test, case, ans) {
+                report_owl_err!(&e);
+            }
+        }
+        Some(("stash", sub_matches)) => {
+            let prog = sub_matches.get_one::<String>("PROG").expect("required");
+
+            if let Err(e) = stash(prog) {
                 report_owl_err!(&e);
             }
         }
