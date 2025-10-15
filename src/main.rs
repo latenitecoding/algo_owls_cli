@@ -99,6 +99,12 @@ fn cli() -> Command {
                 .arg(arg!(<PROG> "The program to stash"))
                 .arg_required_else_help(true),
         )
+        .subcommand(
+            Command::new("init")
+                .about("creates a local file from a stashed template")
+                .arg(arg!(<PROG> "The program to initialize from the template"))
+                .arg_required_else_help(true),
+        )
 }
 
 fn add(name: &str, url: &str, and_fetch: bool) -> Result<(), OwlError> {
@@ -159,6 +165,21 @@ fn fetch_by_name(name: &str) -> Result<(), OwlError> {
     fetch_path.push(name);
 
     fetch(name, check_path!(fetch_path)?)
+}
+
+fn init_program(prog: &str) -> Result<(), OwlError> {
+    let mut stash_path = fs_utils::ensure_dir_from_home(&[OWL_DIR, STASH_DIR])?;
+
+    let ext = Path::new(prog)
+        .extension()
+        .and_then(OsStr::to_str)
+        .ok_or(file_error!(prog))?;
+
+    let stash_file = format!("{}.{}", TEMPLATE_STEM, ext);
+
+    stash_path.push(stash_file);
+
+    fs_utils::copy_file(check_path!(stash_path)?, prog)
 }
 
 fn quest(
@@ -474,6 +495,13 @@ fn main() {
             let prog = sub_matches.get_one::<String>("PROG").expect("required");
 
             if let Err(e) = stash(prog) {
+                report_owl_err!(&e);
+            }
+        }
+        Some(("init", sub_matches)) => {
+            let prog = sub_matches.get_one::<String>("PROG").expect("required");
+
+            if let Err(e) = init_program(prog) {
                 report_owl_err!(&e);
             }
         }
