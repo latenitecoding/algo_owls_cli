@@ -212,6 +212,15 @@ pub fn get_prog_lang(lang_ext: &str) -> Result<Box<dyn ProgLang>, OwlError> {
             };
             Ok(Box::new(kotlin_lang))
         }
+        "lua" => {
+            let lua_lang = RuntimeLang {
+                name: "lua",
+                cmd_str: "lua",
+                cmd_args: &[],
+                ver_arg: "-v",
+            };
+            Ok(Box::new(lua_lang))
+        }
         "odin" => {
             let odin_lang = ComptimeLang {
                 name: "odin",
