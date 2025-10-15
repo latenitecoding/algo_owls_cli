@@ -63,6 +63,7 @@ pub fn get_prog_lang(lang: &str) -> Result<Box<dyn ProgLang>, OwlError> {
             };
             Ok(Box::new(go_lang))
         }
+        "java" => Ok(Box::new(JavaLang::new())),
         "jl" => {
             let julia_lang = RuntimeLang {
                 name: "julia",
@@ -240,6 +241,116 @@ impl ProgLang for RuntimeLang {
 
     fn version(&self) -> Result<String, OwlError> {
         let output = Command::new(self.cmd)
+            .arg(self.ver_arg)
+            .output()
+            .map_err(|e| program_error!(e))?;
+
+        if output.status.success() {
+            Ok(String::from_utf8(output.stdout)
+                .map_err(|e| file_error!(e))?
+                .to_string())
+        } else {
+            Err(program_error!(format!(
+                "Unable to determine version of '{}'",
+                self.name()
+            )))
+        }
+    }
+}
+
+pub struct JavaLang {
+    name: &'static str,
+    build_cmd: &'static str,
+    build_args: &'static [&'static str],
+    run_cmd: &'static str,
+    run_args: &'static [&'static str],
+    ver_arg: &'static str,
+}
+
+impl JavaLang {
+    fn new() -> Self {
+        JavaLang {
+            name: "java",
+            build_cmd: "javac",
+            build_args: &["-encoding", "UTF-8"],
+            run_cmd: "java",
+            run_args: &["-Dfile.encoding=UTF-8", "-XX:+UseSerialGC", "-Xss64m"],
+            ver_arg: "--version",
+        }
+    }
+}
+
+impl ProgLang for JavaLang {
+    fn name(&self) -> &str {
+        self.name
+    }
+
+    fn build(&self, filename: &str) -> Result<BuildLog, OwlError> {
+        let output = Command::new(self.build_cmd)
+            .args(self.build_args)
+            .arg(filename)
+            .output()
+            .map_err(|e| program_error!(e))?;
+
+        let stdout = String::from_utf8(output.stdout)
+            .map_err(|e| file_error!(e))?
+            .to_string();
+        let stderr = String::from_utf8(output.stderr)
+            .map_err(|e| file_error!(e))?
+            .to_string();
+
+        if output.status.success() {
+            let target_stem = Path::new(filename)
+                .file_stem()
+                .and_then(OsStr::to_str)
+                .ok_or(file_error!(filename))?
+                .to_string();
+            let target = format!("{}.class", target_stem);
+
+            Ok(BuildLog { target, stdout })
+        } else {
+            Err(program_error!(stderr))
+        }
+    }
+
+    fn command_exists(&self) -> bool {
+        self.version().is_ok()
+    }
+
+    fn run(&self, target: &str) -> Result<String, OwlError> {
+        let target_stem = Path::new(target)
+            .file_stem()
+            .and_then(OsStr::to_str)
+            .ok_or(file_error!(target))?
+            .to_string();
+
+        let mut cmd = Command::new(self.run_cmd);
+        cmd.args(self.run_args);
+        cmd.arg(target_stem);
+
+        cmd_utils::run_cmd(cmd)
+    }
+
+    fn run_with_stdin(&self, target: &str, input: &str) -> Result<String, OwlError> {
+        let target_stem = Path::new(target)
+            .file_stem()
+            .and_then(OsStr::to_str)
+            .ok_or(file_error!(target))?
+            .to_string();
+
+        let mut cmd = Command::new(self.run_cmd);
+        cmd.args(self.run_args);
+        cmd.arg(target_stem);
+
+        cmd_utils::run_cmd_with_stdin(cmd, input)
+    }
+
+    fn should_build(&self) -> bool {
+        true
+    }
+
+    fn version(&self) -> Result<String, OwlError> {
+        let output = Command::new(self.run_cmd)
             .arg(self.ver_arg)
             .output()
             .map_err(|e| program_error!(e))?;
