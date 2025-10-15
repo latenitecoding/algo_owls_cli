@@ -29,6 +29,16 @@ pub fn check_prog_lang(prog: &str) -> Option<Box<dyn ProgLang>> {
 
 pub fn get_prog_lang(lang: &str) -> Result<Box<dyn ProgLang>, OwlError> {
     match lang {
+        "go" => {
+            let go_lang = CommonLang {
+                name: "go",
+                cmd: "go",
+                ver_arg: "version",
+                build_cmd: "go",
+                build_args: &["build"],
+            };
+            Ok(Box::new(go_lang))
+        }
         "rs" => {
             let rust_lang = CommonLang {
                 name: "rust",
