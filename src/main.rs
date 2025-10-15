@@ -105,6 +105,12 @@ fn cli() -> Command {
                 .arg(arg!(<PROG> "The program to initialize from the template"))
                 .arg_required_else_help(true),
         )
+        .subcommand(
+            Command::new("clean")
+                .about("removes all stashed test cases (and solutions)")
+                .arg(arg!(--stash "Removes all stashed programs"))
+                .arg(arg!(--all "Removes all test cases and stashed programs")),
+        )
 }
 
 fn add(name: &str, url: &str, and_fetch: bool) -> Result<(), OwlError> {
@@ -141,6 +147,28 @@ fn build_program(prog: &str) -> Result<String, OwlError> {
         }
         None => Ok(prog.to_string()),
     }
+}
+
+fn clear_stash(only_stash: bool, all_files: bool) -> Result<(), OwlError> {
+    let owl_path = fs_utils::ensure_dir_from_home(&[OWL_DIR])?;
+
+    for entry in fs::read_dir(check_path!(owl_path)?).map_err(|e| file_error!(e))? {
+        let path = entry.map_err(|e| file_error!(e))?.path();
+        let stem = path
+            .file_stem()
+            .and_then(OsStr::to_str)
+            .ok_or(file_error!(check_path!(path)?))?;
+
+        if path.is_dir()
+            && (all_files
+                || (stem == STASH_DIR && only_stash)
+                || (stem != STASH_DIR && !only_stash))
+        {
+            fs_utils::remove_path(check_path!(path)?)?
+        }
+    }
+
+    Ok(())
 }
 
 fn fetch(name: &str, dir: &str) -> Result<(), OwlError> {
@@ -502,6 +530,14 @@ fn main() {
             let prog = sub_matches.get_one::<String>("PROG").expect("required");
 
             if let Err(e) = init_program(prog) {
+                report_owl_err!(&e);
+            }
+        }
+        Some(("clean", sub_matches)) => {
+            let stash = sub_matches.get_one::<bool>("stash").map_or(false, |&f| f);
+            let all = sub_matches.get_one::<bool>("all").map_or(false, |&f| f);
+
+            if let Err(e) = clear_stash(stash, all) {
                 report_owl_err!(&e);
             }
         }
