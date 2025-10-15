@@ -54,24 +54,27 @@ fn cli() -> Command {
                 .arg_required_else_help(true),
         )
         .subcommand(
+            Command::new("clean")
+                .about("removes all stashed test cases (and solutions)")
+                .arg(arg!(--stash "Removes all stashed programs"))
+                .arg(arg!(--all "Removes all test cases and stashed programs")),
+        )
+        .subcommand(
             Command::new("fetch")
                 .about("fetches sample test cases for the given quest")
                 .arg(arg!(<NAME> "The name of the quest"))
                 .arg_required_else_help(true),
         )
         .subcommand(
-            Command::new("run")
-                .about("builds and executes target program")
-                .arg(arg!(<PROG> "The program to run"))
+            Command::new("init")
+                .about("creates a local file from a stashed template")
+                .arg(arg!(<PROG> "The program to initialize from the template"))
                 .arg_required_else_help(true),
         )
         .subcommand(
-            Command::new("test")
-                .about("runs program against sample test case")
-                .arg(arg!(<PROG> "The program to test"))
-                .arg(arg!(<IN> "The input file for the test case"))
-                .arg(arg!(<ANS> "The answer file to the test case"))
-                .arg_required_else_help(true),
+            Command::new("push")
+                .about("pushes all stashed solutions to the remote")
+                .arg(arg!(-f --force "Forces the remote to match the local stash")),
         )
         .subcommand(
             Command::new("quest")
@@ -81,6 +84,25 @@ fn cli() -> Command {
                 .arg(arg!(-t --test <TEST> "The specific test to run by name"))
                 .arg(arg!(-c --case <CASE> "The specific test to run by case number"))
                 .arg(arg!(-r --rand "Test against a random test case"))
+                .arg_required_else_help(true),
+        )
+        .subcommand(
+            Command::new("remote")
+                .about("sets the stash to branch main on the git remote")
+                .arg(arg!(<REMOTE> "The git remote"))
+                .arg(arg!(-f --force "Replaces the current git remote"))
+                .arg_required_else_help(true),
+        )
+        .subcommand(
+            Command::new("restore")
+                .about("restores the program to the version stashed away")
+                .arg(arg!(<PROG> "The program to restore"))
+                .arg_required_else_help(true),
+        )
+        .subcommand(
+            Command::new("run")
+                .about("builds and executes target program")
+                .arg(arg!(<PROG> "The program to run"))
                 .arg_required_else_help(true),
         )
         .subcommand(
@@ -101,39 +123,17 @@ fn cli() -> Command {
                 .arg_required_else_help(true),
         )
         .subcommand(
-            Command::new("restore")
-                .about("restores the program to the version stashed away")
-                .arg(arg!(<PROG> "The program to restore"))
-                .arg_required_else_help(true),
-        )
-        .subcommand(
-            Command::new("init")
-                .about("creates a local file from a stashed template")
-                .arg(arg!(<PROG> "The program to initialize from the template"))
-                .arg_required_else_help(true),
-        )
-        .subcommand(
-            Command::new("clean")
-                .about("removes all stashed test cases (and solutions)")
-                .arg(arg!(--stash "Removes all stashed programs"))
-                .arg(arg!(--all "Removes all test cases and stashed programs")),
-        )
-        .subcommand(
-            Command::new("remote")
-                .about("sets the stash to branch main on the git remote")
-                .arg(arg!(<REMOTE> "The git remote"))
-                .arg(arg!(-f --force "Replaces the current git remote"))
-                .arg_required_else_help(true),
-        )
-        .subcommand(
             Command::new("sync")
                 .about("syncs the stash directory to match the remote")
                 .arg(arg!(-f --force "Removes all local changes")),
         )
         .subcommand(
-            Command::new("push")
-                .about("pushes all stashed solutions to the remote")
-                .arg(arg!(-f --force "Forces the remote to match the local stash")),
+            Command::new("test")
+                .about("runs program against sample test case")
+                .arg(arg!(<PROG> "The program to test"))
+                .arg(arg!(<IN> "The input file for the test case"))
+                .arg(arg!(<ANS> "The answer file to the test case"))
+                .arg_required_else_help(true),
         )
 }
 
