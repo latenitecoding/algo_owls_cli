@@ -1,5 +1,5 @@
 [package]
-name = "algowl"
+name = "owlgo"
 version = "0.1.0"
 authors = ["LateNiteCode <latenitecode@gmail.com>"]
 repository = "https://github.com/latenitecoding/algo_owls_cli"
