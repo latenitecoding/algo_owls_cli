@@ -76,7 +76,9 @@ pub fn copy_file(src: &str, dst: &str) -> Result<(), OwlError> {
         .open(src)
         .map_err(|e| file_error!(e))?;
 
-    remove_path(dst)?;
+    if Path::new(dst).exists() {
+        remove_path(dst)?;
+    }
 
     let mut dst_file = OpenOptions::new()
         .create(true)
