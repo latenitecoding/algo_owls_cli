@@ -97,6 +97,7 @@ fn cli() -> Command {
             Command::new("stash")
                 .about("stashes the program away for later")
                 .arg(arg!(<PROG> "The program to stash"))
+                .arg(arg!(-t --templ "Stashes the program away as a template"))
                 .arg_required_else_help(true),
         )
         .subcommand(
@@ -373,8 +374,13 @@ fn show_it(target_file: &str, show_ans: bool) -> Result<(), OwlError> {
     Ok(())
 }
 
-fn stash(prog: &str) -> Result<(), OwlError> {
+fn stash(prog: &str, as_templ: bool) -> Result<(), OwlError> {
     let mut stash_path = fs_utils::ensure_dir_from_home(&[OWL_DIR, STASH_DIR])?;
+
+    if !as_templ {
+        stash_path.push(prog);
+        return fs_utils::copy_file(prog, check_path!(stash_path)?);
+    }
 
     let ext = Path::new(prog)
         .extension()
@@ -521,8 +527,9 @@ fn main() {
         }
         Some(("stash", sub_matches)) => {
             let prog = sub_matches.get_one::<String>("PROG").expect("required");
+            let templ = sub_matches.get_one::<bool>("templ").map_or(false, |&f| f);
 
-            if let Err(e) = stash(prog) {
+            if let Err(e) = stash(prog, templ) {
                 report_owl_err!(&e);
             }
         }
