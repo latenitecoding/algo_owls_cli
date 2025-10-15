@@ -29,15 +29,25 @@ pub fn check_prog_lang(prog: &str) -> Option<Box<dyn ProgLang>> {
 
 pub fn get_prog_lang(lang: &str) -> Result<Box<dyn ProgLang>, OwlError> {
     match lang {
+        "rs" => {
+            let rust_lang = CommonLang {
+                name: "rust",
+                cmd: "rustc",
+                ver_arg: "--version",
+                build_cmd: "rustc",
+                build_args: &["-C", "opt-level=3", "-C", "target-cpu=native"],
+            };
+            Ok(Box::new(rust_lang))
+        }
         "zig" => {
-            let zig = CommonLang {
+            let zig_lang = CommonLang {
                 name: "zig",
                 cmd: "zig",
                 ver_arg: "version",
-                build_cmd: "build-exe",
-                build_args: &["-O", "ReleaseFast"],
+                build_cmd: "zig",
+                build_args: &["build-exe", "-O", "ReleaseFast"],
             };
-            Ok(Box::new(zig))
+            Ok(Box::new(zig_lang))
         }
         _ => Err(not_supported!(lang)),
     }
@@ -57,8 +67,7 @@ impl ProgLang for CommonLang {
     }
 
     fn build(&self, filename: &str) -> Result<BuildLog, OwlError> {
-        let output = Command::new(self.cmd)
-            .arg(self.build_cmd)
+        let output = Command::new(self.build_cmd)
             .args(self.build_args)
             .arg(filename)
             .output()
