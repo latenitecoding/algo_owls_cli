@@ -170,6 +170,14 @@ pub fn get_prog_lang(lang_ext: &str) -> Result<Box<dyn ProgLang>, OwlError> {
             };
             Ok(Box::new(julia_lang))
         }
+        "js" => {
+            let js_lang = RuntimeLang {
+                name: "javascript",
+                cmd_str: "node",
+                ver_arg: "--version",
+            };
+            Ok(Box::new(js_lang))
+        }
         "kt" => {
             let kotlin_lang = CustomLang {
                 name: "kotlin",
@@ -209,6 +217,19 @@ pub fn get_prog_lang(lang_ext: &str) -> Result<Box<dyn ProgLang>, OwlError> {
                 fn_build_files: None,
             };
             Ok(Box::new(rust_lang))
+        }
+        "ts" => {
+            let ts_lang = CustomLang {
+                name: "typescript",
+                build_cmd_str: "tsc",
+                build_args: &["--module", "commonjs"],
+                run_cmd_str: "node",
+                run_args: &[],
+                ver_arg: "--version",
+                fn_target_name: |target_stem| format!("{}.js", target_stem),
+                fn_build_files: None,
+            };
+            Ok(Box::new(ts_lang))
         }
         "zig" => {
             let zig_lang = ComptimeLang {
