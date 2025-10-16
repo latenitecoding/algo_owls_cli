@@ -145,7 +145,11 @@ fn cli() -> Command {
                 .arg(arg!(<ANS> "The answer file to the test case"))
                 .arg_required_else_help(true),
         )
-        .subcommand(Command::new("update").about("checks owlgo and its manifest for updates"))
+        .subcommand(
+            Command::new("update")
+                .about("checks owlgo and its manifest for updates")
+                .arg(arg!(-e --ext "Update extensions")),
+        )
         .subcommand(
             Command::new("version")
                 .about("outputs the current version")
@@ -728,7 +732,7 @@ fn test_it(target: &str, in_file: &str, ans_file: &str) -> Result<u128, OwlError
     }
 }
 
-fn update() -> Result<(), OwlError> {
+fn update(and_extensions: bool) -> Result<(), OwlError> {
     let mut manifest_path = fs_utils::ensure_dir_from_home(&[OWL_DIR])?;
     manifest_path.push(MANIFEST);
 
@@ -747,6 +751,11 @@ fn update() -> Result<(), OwlError> {
         println!("updating manifest...");
 
         fs_utils::update_toml(check_path!(manifest_path)?, MANIFEST_URL)?
+    }
+
+    if and_extensions {
+        println!("updating extensions...");
+        fs_utils::update_extensions(check_path!(manifest_path)?)?
     }
 
     if version_out_of_date {
@@ -895,8 +904,10 @@ fn main() {
                 report_owl_err!(&e);
             }
         }
-        Some(("update", _)) => {
-            if let Err(e) = update() {
+        Some(("update", sub_matches)) => {
+            let extensions = sub_matches.get_one::<bool>("ext").map_or(false, |&f| f);
+
+            if let Err(e) = update(extensions) {
                 report_owl_err!(&e);
             }
         }

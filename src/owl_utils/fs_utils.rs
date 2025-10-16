@@ -400,6 +400,12 @@ pub fn remove_path(file_or_dir: &str) -> Result<(), OwlError> {
     Ok(())
 }
 
+pub fn update_extensions(_: &str) -> Result<(), OwlError> {
+    Err(OwlError::ProgramError(
+        "updating extensions is currently not supported".to_string(),
+    ))
+}
+
 pub fn update_toml(filepath: &str, url: &str) -> Result<(), OwlError> {
     let mut resp = reqwest::blocking::get(url).map_err(|e| net_error!(e))?;
 
