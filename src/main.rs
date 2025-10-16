@@ -8,8 +8,8 @@ use owl_utils::{cmd_utils, fs_utils, owl_error::OwlError, prog_lang};
 
 const OWL_DIR: &str = ".owlgo";
 const MANIFEST: &str = ".manifest.toml";
-const MANIFEST_HEAD_URL: &str = "https://gist.githubusercontent.com/latenitecoding/84c043f4c9092998773640a2202f2d36/raw/f931e72ed9d125ba8829096a735db2776342d06b/owl_manifest_short";
-const MANIFEST_URL: &str = "https://gist.githubusercontent.com/latenitecoding/b6fdd8656c0b6a60795581f84d0f2fa4/raw/47b9ba9d2ebc26ee4b1cfb496ea6ffa14812c5aa/owlgo_manifest";
+const MANIFEST_HEAD_URL: &str = "https://gist.githubusercontent.com/latenitecoding/84c043f4c9092998773640a2202f2d36/raw/owl_manifest_short";
+const MANIFEST_URL: &str = "https://gist.githubusercontent.com/latenitecoding/b6fdd8656c0b6a60795581f84d0f2fa4/raw/owlgo_manifest";
 const TEMPLATE_STEM: &str = ".template";
 const TMP_ARCHIVE: &str = ".tmp.zip";
 const STASH_DIR: &str = ".stash";
@@ -755,7 +755,7 @@ fn update(and_extensions: bool) -> Result<(), OwlError> {
 
     if and_extensions {
         println!("updating extensions...");
-        fs_utils::update_extensions(check_path!(manifest_path)?)?
+        fs_utils::update_extensions(check_path!(manifest_path)?, TMP_ARCHIVE)?
     }
 
     if version_out_of_date {

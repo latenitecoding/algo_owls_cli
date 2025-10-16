@@ -3,7 +3,7 @@ use std::ffi::OsStr;
 use std::fs::{self, File, OpenOptions};
 use std::io::{BufRead, BufReader, BufWriter, Read, Write, copy};
 use std::path::{Path, PathBuf};
-use toml_edit::{DocumentMut, value};
+use toml_edit::{DocumentMut, Table, value};
 use zip::ZipArchive;
 
 use super::owl_error::{
@@ -59,15 +59,7 @@ pub fn check_for_updates(
     local_version: &str,
     local_timestamp: &str,
 ) -> Result<(bool, bool), OwlError> {
-    let mut resp = reqwest::blocking::get(url).map_err(|e| net_error!(e))?;
-
-    let mut toml_str = String::new();
-    resp.read_to_string(&mut toml_str)
-        .map_err(|e| file_error!(e))?;
-
-    let doc = toml_str
-        .parse::<DocumentMut>()
-        .map_err(|e| file_error!(e))?;
+    let doc = load_toml_doc(url, false)?;
 
     let remote_version = check_manifest!(doc["manifest"], "version")?;
     let remote_timestamp = check_manifest!(doc["manifest"], "timestamp")?;
@@ -85,29 +77,17 @@ pub fn commit_manifest(
     and_fetch: Option<&str>,
     is_local: bool,
 ) -> Result<(), OwlError> {
-    let local_toml_str = fs::read_to_string(manifest_path).map_err(|e| file_error!(e))?;
+    let mut local_doc = load_toml_doc(manifest_path, true)?;
+    let remote_doc = load_toml_doc(uuid, is_local)?;
 
-    let remote_toml_str = if is_local {
-        fs::read_to_string(uuid).map_err(|e| file_error!(e))?
+    let metadata = if is_local {
+        format!("{}.path", name)
     } else {
-        let mut resp = reqwest::blocking::get(uuid).map_err(|e| net_error!(e))?;
-
-        let mut remote_toml_str = String::new();
-        resp.read_to_string(&mut remote_toml_str)
-            .map_err(|e| file_error!(e))?;
-
-        remote_toml_str
+        format!("{}.url", name)
     };
 
-    let mut local_doc = local_toml_str
-        .parse::<DocumentMut>()
-        .map_err(|e| file_error!(e))?;
-
-    let remote_doc = remote_toml_str
-        .parse::<DocumentMut>()
-        .map_err(|e| file_error!(e))?;
-
     local_doc["extensions"][name] = remote_doc["manifest"]["timestamp"].clone();
+    local_doc["metadata"][metadata] = value(uuid);
 
     if let Some(personal_table) = remote_doc["personal"].as_table() {
         let mut quest_path = Path::new(manifest_path)
@@ -326,10 +306,7 @@ pub fn find_by_stem_and_ext(
 }
 
 pub fn get_toml_entry(filepath: &str, tables: &[&str], name: &str) -> Result<String, OwlError> {
-    let toml_str = fs::read_to_string(filepath).map_err(|e| file_error!(e))?;
-    let doc = toml_str
-        .parse::<DocumentMut>()
-        .map_err(|e| file_error!(e))?;
+    let doc = load_toml_doc(filepath, true)?;
 
     for &table in tables {
         if doc[table].get(name).is_some() {
@@ -387,6 +364,22 @@ pub fn list_dir(root_dir: String) -> Result<String, OwlError> {
     Ok(buffer)
 }
 
+fn load_toml_doc(uuid: &str, is_local: bool) -> Result<DocumentMut, OwlError> {
+    let toml_str = if is_local {
+        fs::read_to_string(uuid).map_err(|e| file_error!(e))?
+    } else {
+        let mut resp = reqwest::blocking::get(uuid).map_err(|e| net_error!(e))?;
+
+        let mut remote_toml_str = String::new();
+        resp.read_to_string(&mut remote_toml_str)
+            .map_err(|e| file_error!(e))?;
+
+        remote_toml_str
+    };
+
+    toml_str.parse::<DocumentMut>().map_err(|e| file_error!(e))
+}
+
 pub fn remove_path(file_or_dir: &str) -> Result<(), OwlError> {
     let path = Path::new(file_or_dir);
     let metadata = fs::metadata(path).map_err(|e| file_error!(e))?;
@@ -400,27 +393,106 @@ pub fn remove_path(file_or_dir: &str) -> Result<(), OwlError> {
     Ok(())
 }
 
-pub fn update_extensions(_: &str) -> Result<(), OwlError> {
-    Err(OwlError::ProgramError(
-        "updating extensions is currently not supported".to_string(),
-    ))
+pub fn update_extensions(manifest_path: &str, tmp_archive: &str) -> Result<(), OwlError> {
+    let mut local_doc = load_toml_doc(manifest_path, true)?;
+
+    if let Some(ext_table) = local_doc["extensions"].as_table() {
+        let mut quest_path = Path::new(manifest_path)
+            .parent()
+            .ok_or(file_error!(format!("no parent of {}", manifest_path)))?
+            .to_path_buf();
+
+        let mut tmp_doc = DocumentMut::new();
+        tmp_doc["extensions"] = Table::new().into();
+        tmp_doc["metadata"] = Table::new().into();
+        tmp_doc["personal"] = Table::new().into();
+
+        for (ext_name, timestamp) in ext_table.iter() {
+            let ext_path = format!("{}.path", ext_name);
+            let ext_url = format!("{}.url", ext_name);
+
+            let is_local = local_doc["metadata"].get(&ext_path).is_some();
+            let is_remote = local_doc["metadata"].get(&ext_url).is_some();
+
+            if !is_local && !is_remote {
+                return Err(file_not_found!(ext_name));
+            }
+
+            let uuid = if is_local {
+                check_manifest!(local_doc["metadata"], &ext_path)?
+            } else {
+                check_manifest!(local_doc["metadata"], &ext_url)?
+            };
+
+            let remote_doc = load_toml_doc(&uuid, is_local)?;
+
+            if !compare_stamps(
+                &check_item!(timestamp, "timestamp")?,
+                &check_manifest!(remote_doc["manifest"], "timestamp")?,
+            )? {
+                continue;
+            }
+
+            tmp_doc["extensions"][ext_name] =
+                value(check_manifest!(remote_doc["manifest"], "timestamp")?);
+            if is_local {
+                tmp_doc["metadata"][ext_path] = value(uuid);
+            } else {
+                tmp_doc["metadata"][ext_url] = value(uuid);
+            }
+
+            if let Some(personal_table) = remote_doc["personal"].as_table() {
+                for (key, item) in personal_table.iter() {
+                    tmp_doc["personal"][key] = item.clone();
+
+                    quest_path.push(key);
+
+                    let url = check_item!(item, key)?;
+                    remove_path(check_path!(quest_path)?)?;
+                    download_archive(&url, tmp_archive, check_path!(quest_path)?)?;
+
+                    quest_path.pop();
+                }
+            }
+        }
+
+        if let Some(tmp_ext_table) = tmp_doc["extensions"].as_table() {
+            for (key, item) in tmp_ext_table.iter() {
+                local_doc["extensions"][key] = item.clone();
+            }
+        }
+
+        if let Some(tmp_metadata_table) = tmp_doc["metadata"].as_table() {
+            for (key, item) in tmp_metadata_table.iter() {
+                local_doc["metadata"][key] = item.clone();
+            }
+        }
+
+        if let Some(tmp_personal_table) = tmp_doc["personal"].as_table() {
+            for (key, item) in tmp_personal_table.iter() {
+                local_doc["personal"][key] = item.clone();
+            }
+        }
+    }
+
+    let toml_file = OpenOptions::new()
+        .write(true)
+        .open(manifest_path)
+        .map_err(|e| file_error!(e))?;
+
+    let mut writer = BufWriter::new(toml_file);
+
+    writer
+        .write_all(local_doc.to_string().as_bytes())
+        .map_err(|e| file_error!(e))?;
+    writer.flush().map_err(|e| file_error!(e))?;
+
+    Ok(())
 }
 
 pub fn update_toml(filepath: &str, url: &str) -> Result<(), OwlError> {
-    let mut resp = reqwest::blocking::get(url).map_err(|e| net_error!(e))?;
-
-    let mut remote_toml_str = String::new();
-    resp.read_to_string(&mut remote_toml_str)
-        .map_err(|e| file_error!(e))?;
-
-    let remote_doc = remote_toml_str
-        .parse::<DocumentMut>()
-        .map_err(|e| file_error!(e))?;
-
-    let local_toml_str = fs::read_to_string(filepath).map_err(|e| file_error!(e))?;
-    let mut local_doc = local_toml_str
-        .parse::<DocumentMut>()
-        .map_err(|e| file_error!(e))?;
+    let mut local_doc = load_toml_doc(filepath, true)?;
+    let remote_doc = load_toml_doc(url, false)?;
 
     local_doc["manifest"] = remote_doc["manifest"].clone();
     local_doc["quests"] = remote_doc["quests"].clone();
