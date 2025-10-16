@@ -9,7 +9,7 @@ pub trait ProgLang {
     fn build_cmd(&self, filename: &str) -> Result<Command, OwlError>;
     fn build_files(&self, target_stem: &str) -> Option<Vec<String>>;
     fn name(&self) -> &str;
-    fn run_it(&self, target: &str, stdin: Option<&str>) -> Result<String, OwlError>;
+    fn run_it(&self, target: &str, stdin: Option<&str>) -> Result<(String, u128), OwlError>;
     fn should_build(&self) -> bool;
     fn target_name(&self, target_stem: &str) -> String;
     fn version_cmd(&self) -> Result<Command, OwlError>;
@@ -68,11 +68,11 @@ pub trait ProgLang {
         }
     }
 
-    fn run(&self, target: &str) -> Result<String, OwlError> {
+    fn run(&self, target: &str) -> Result<(String, u128), OwlError> {
         self.run_it(target, None)
     }
 
-    fn run_with_stdin(&self, target: &str, input: &str) -> Result<String, OwlError> {
+    fn run_with_stdin(&self, target: &str, input: &str) -> Result<(String, u128), OwlError> {
         self.run_it(target, Some(input))
     }
 }
@@ -423,7 +423,7 @@ impl ProgLang for ComptimeLang {
         self.name
     }
 
-    fn run_it(&self, target: &str, stdin: Option<&str>) -> Result<String, OwlError> {
+    fn run_it(&self, target: &str, stdin: Option<&str>) -> Result<(String, u128), OwlError> {
         match stdin {
             Some(input) => cmd_utils::run_binary_with_stdin(target, input),
             None => cmd_utils::run_binary(target),
@@ -470,7 +470,7 @@ impl ProgLang for RuntimeLang {
         self.name
     }
 
-    fn run_it(&self, target: &str, stdin: Option<&str>) -> Result<String, OwlError> {
+    fn run_it(&self, target: &str, stdin: Option<&str>) -> Result<(String, u128), OwlError> {
         let mut run_cmd = Command::new(self.cmd_str);
         run_cmd.args(self.cmd_args);
         run_cmd.arg(target);
@@ -529,7 +529,7 @@ impl ProgLang for CustomLang {
         self.name
     }
 
-    fn run_it(&self, target: &str, stdin: Option<&str>) -> Result<String, OwlError> {
+    fn run_it(&self, target: &str, stdin: Option<&str>) -> Result<(String, u128), OwlError> {
         let mut cmd = Command::new(self.run_cmd_str);
         cmd.args(self.run_args);
 
@@ -603,7 +603,7 @@ impl ProgLang for ErlLang {
         self.name
     }
 
-    fn run_it(&self, target: &str, stdin: Option<&str>) -> Result<String, OwlError> {
+    fn run_it(&self, target: &str, stdin: Option<&str>) -> Result<(String, u128), OwlError> {
         let mut cmd = Command::new(self.cmd_str);
         cmd.args(self.pre_run_args);
 

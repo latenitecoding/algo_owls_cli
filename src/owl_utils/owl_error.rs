@@ -8,6 +8,7 @@ pub enum OwlError {
     NetworkError(String),
     ProgramError(String),
     TestFailure(String),
+    TimeError(String),
     UnrecognizedChars(String),
     UnsupportedLanguage(String),
 }
@@ -21,6 +22,7 @@ impl fmt::Display for OwlError {
             OwlError::NetworkError(e) => write!(f, "{}", e),
             OwlError::ProgramError(e) => write!(f, "{}", e),
             OwlError::TestFailure(e) => write!(f, "{}", e),
+            OwlError::TimeError(e) => write!(f, "{}", e),
             OwlError::UnrecognizedChars(e) => write!(f, "{}", e),
             OwlError::UnsupportedLanguage(e) => write!(f, "{}", e),
         }
@@ -133,3 +135,12 @@ macro_rules! test_failure {
         OwlError::TestFailure($expr.to_string())
     };
 }
+
+#[macro_export]
+macro_rules! time_error {
+    ($expr:expr) => {
+        OwlError::TimeError($expr.to_string())
+    };
+}
+
+pub(crate) use time_error;

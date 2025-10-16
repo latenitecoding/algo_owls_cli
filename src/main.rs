@@ -345,6 +345,7 @@ fn quest(
     let mut passed = 0;
     let mut failed = 0;
     let mut count = 0;
+    let mut total_duration = 0;
 
     for test_case in test_cases {
         count += 1;
@@ -366,12 +367,18 @@ fn quest(
         }
 
         match quest_it(&target, &test_case, count, total) {
-            Ok(true) => passed += 1,
-            Ok(false) | Err(_) => failed += 1,
+            Ok((true, elapsed)) => {
+                passed += 1;
+                total_duration += elapsed;
+            }
+            Ok((false, _)) | Err(_) => failed += 1,
         }
     }
 
-    println!("passed: {}, failed: {}", passed, failed);
+    println!(
+        "passed: {}, failed: {}, elapsed: {}ms",
+        passed, failed, total_duration
+    );
 
     cleanup_program(prog, &target, build_files)?;
 
@@ -383,7 +390,12 @@ fn quest(
     }
 }
 
-fn quest_it(target: &str, test_case: &str, count: usize, total: usize) -> Result<bool, OwlError> {
+fn quest_it(
+    target: &str,
+    test_case: &str,
+    count: usize,
+    total: usize,
+) -> Result<(bool, u128), OwlError> {
     let in_path = Path::new(&test_case);
     let in_stem = in_path
         .file_stem()
@@ -393,19 +405,19 @@ fn quest_it(target: &str, test_case: &str, count: usize, total: usize) -> Result
     let ans_file = fs_utils::as_ans_file(&test_case)?;
 
     match test_it(&target, &test_case, &ans_file) {
-        Ok(_) => {
+        Ok(elapsed) => {
             println!(
-                "({}/{}) {} \x1b[32mpassed test\x1b[0m 🎉\n",
-                count, total, in_stem
+                "({}/{}) [{}ms] {} \x1b[32mpassed test\x1b[0m 🎉\n",
+                count, total, elapsed, in_stem
             );
-            Ok(true)
+            Ok((true, elapsed))
         }
         Err(e) => {
             eprintln!(
                 "({}/{}) {} \x1b[31m{}\x1b[0m 😭\n",
                 count, total, in_stem, e
             );
-            Ok(false)
+            Ok((false, 0))
         }
     }
 }
@@ -433,10 +445,11 @@ fn run(prog: &str) -> Result<(), OwlError> {
 
             cleanup_program(prog, &target, build_files)?;
 
-            run_result.map(|stdout| println!("{}", stdout))
+            run_result.map(|(stdout, _)| println!("{}", stdout))
         }
         None => {
-            println!("{}", cmd_utils::run_binary(prog)?);
+            let (stdout, _) = cmd_utils::run_binary(prog)?;
+            println!("{}", stdout);
             Ok(())
         }
     }
@@ -617,7 +630,7 @@ fn sync_git_remote(force: bool) -> Result<(), OwlError> {
 }
 
 fn test(prog: &str, in_file: &str, ans_file: &str) -> Result<(), OwlError> {
-    match prog_lang::check_prog_lang(prog) {
+    let test_result = match prog_lang::check_prog_lang(prog) {
         Some(_) => {
             let (target, build_files) = match build_program(prog)? {
                 Some(bl) => (bl.target, bl.build_files),
@@ -631,10 +644,21 @@ fn test(prog: &str, in_file: &str, ans_file: &str) -> Result<(), OwlError> {
             test_result
         }
         None => test_it(prog, in_file, ans_file),
+    };
+
+    match test_result {
+        Ok(elapsed) => {
+            println!("[{}ms] \x1b[32mpassed test\x1b[0m 🎉\n", elapsed);
+            Ok(())
+        }
+        Err(e) => {
+            eprintln!("\x1b[31m{}\x1b[0m 😭\n", e);
+            Ok(())
+        }
     }
 }
 
-fn test_it(target: &str, in_file: &str, ans_file: &str) -> Result<(), OwlError> {
+fn test_it(target: &str, in_file: &str, ans_file: &str) -> Result<u128, OwlError> {
     let prog_path = Path::new(target);
     let in_path = Path::new(in_file);
     let ans_path = Path::new(ans_file);
@@ -660,18 +684,18 @@ fn test_it(target: &str, in_file: &str, ans_file: &str) -> Result<(), OwlError> 
 
             let run_result = lang.run_with_stdin(target, &stdin);
 
-            run_result.and_then(|actual| {
+            run_result.and_then(|(actual, elapsed)| {
                 if actual == ans {
-                    Ok(())
+                    Ok(elapsed)
                 } else {
                     report_test_failed!(in_file, ans, actual);
                     Err(test_failure!("failed test"))
                 }
             })
         }
-        None => cmd_utils::run_binary_with_stdin(target, &stdin).and_then(|actual| {
+        None => cmd_utils::run_binary_with_stdin(target, &stdin).and_then(|(actual, elapsed)| {
             if actual == ans {
-                Ok(())
+                Ok(elapsed)
             } else {
                 report_test_failed!(in_file, ans, actual);
                 Err(test_failure!("failed test"))

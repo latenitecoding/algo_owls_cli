@@ -1,7 +1,8 @@
 use std::io::{BufReader, Read, Write};
 use std::process::{Child, Command, Stdio};
+use std::time::{SystemTime, UNIX_EPOCH};
 
-use super::owl_error::{OwlError, file_error, program_error};
+use super::owl_error::{OwlError, file_error, program_error, time_error};
 
 fn stderr_only(mut child: Child) -> Result<String, OwlError> {
     let stderr_pipe = child.stderr.take().ok_or(file_error!("stderr"))?;
@@ -220,17 +221,34 @@ pub fn list_all(dir: &str) -> Result<(), OwlError> {
     }
 }
 
-pub fn run_cmd(mut cmd: Command) -> Result<String, OwlError> {
+pub fn run_cmd(mut cmd: Command) -> Result<(String, u128), OwlError> {
+    let start = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(|e| time_error!(e))?
+        .as_millis();
+
     let child = cmd
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
         .map_err(|e| program_error!(e))?;
 
-    stdout_else_stderr(child)
+    stdout_else_stderr(child).and_then(|stdout| {
+        let stop = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map_err(|e| time_error!(e))?
+            .as_millis();
+
+        Ok((stdout, stop - start))
+    })
 }
 
-pub fn run_cmd_with_stdin(mut cmd: Command, input: &str) -> Result<String, OwlError> {
+pub fn run_cmd_with_stdin(mut cmd: Command, input: &str) -> Result<(String, u128), OwlError> {
+    let start = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(|e| time_error!(e))?
+        .as_millis();
+
     let mut child = cmd
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -243,15 +261,22 @@ pub fn run_cmd_with_stdin(mut cmd: Command, input: &str) -> Result<String, OwlEr
         .write_all(input.as_bytes())
         .map_err(|e| file_error!(e))?;
 
-    stdout_else_stderr(child)
+    stdout_else_stderr(child).and_then(|stdout| {
+        let stop = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map_err(|e| time_error!(e))?
+            .as_millis();
+
+        Ok((stdout, stop - start))
+    })
 }
 
-pub fn run_binary(exe: &str) -> Result<String, OwlError> {
+pub fn run_binary(exe: &str) -> Result<(String, u128), OwlError> {
     let cmd = Command::new(format!("./{}", exe));
     run_cmd(cmd)
 }
 
-pub fn run_binary_with_stdin(exe: &str, input: &str) -> Result<String, OwlError> {
+pub fn run_binary_with_stdin(exe: &str, input: &str) -> Result<(String, u128), OwlError> {
     let cmd = Command::new(format!("./{}", exe));
     run_cmd_with_stdin(cmd, input)
 }
