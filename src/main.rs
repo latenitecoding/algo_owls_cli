@@ -16,7 +16,7 @@ const STASH_DIR: &str = ".stash";
 
 const TOML_TEMPLATE: &str = r#"
 [manifest]
-version = "0.1.1"
+version = "0.1.2"
 timestamp = "0.0.0"
 
 [quests]
