@@ -28,6 +28,22 @@ impl fmt::Display for OwlError {
 }
 
 #[macro_export]
+macro_rules! check_manifest {
+    ($expr:expr, $name:expr) => {
+        $expr
+            .get($name)
+            .map(|entry| entry.as_value())
+            .flatten()
+            .map(|entry| entry.as_str())
+            .flatten()
+            .map(|entry| entry.to_string())
+            .ok_or(no_entry_found!($name))
+    };
+}
+
+pub(crate) use check_manifest;
+
+#[macro_export]
 macro_rules! check_path {
     ($expr:expr) => {
         $expr.to_str().ok_or(OwlError::UnrecognizedChars(

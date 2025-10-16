@@ -8,6 +8,8 @@ use owl_utils::{cmd_utils, fs_utils, owl_error::OwlError, prog_lang};
 
 const OWL_DIR: &str = ".owlgo";
 const MANIFEST: &str = ".manifest.toml";
+const MANIFEST_HEAD_URL: &str = "https://gist.githubusercontent.com/latenitecoding/84c043f4c9092998773640a2202f2d36/raw/f931e72ed9d125ba8829096a735db2776342d06b/owl_manifest_short";
+const MANIFEST_URL: &str = "https://gist.githubusercontent.com/latenitecoding/b6fdd8656c0b6a60795581f84d0f2fa4/raw/47b9ba9d2ebc26ee4b1cfb496ea6ffa14812c5aa/owlgo_manifest";
 const TEMPLATE_STEM: &str = ".template";
 const TMP_ARCHIVE: &str = ".tmp.zip";
 const STASH_DIR: &str = ".stash";
@@ -136,6 +138,7 @@ fn cli() -> Command {
                 .arg(arg!(<ANS> "The answer file to the test case"))
                 .arg_required_else_help(true),
         )
+        .subcommand(Command::new("update").about("checks owlgo and its manifest for updates"))
         .subcommand(
             Command::new("version")
                 .about("outputs the current version")
@@ -524,9 +527,16 @@ fn show_version(lang_ext: Option<&String>) -> Result<(), OwlError> {
                 fs_utils::create_toml(check_path!(manifest_path)?, TOML_TEMPLATE)?;
             }
 
-            let (version, _) = fs_utils::get_toml_version_timestamp(check_path!(manifest_path)?)?;
+            let version = fs_utils::extract_toml_version(TOML_TEMPLATE)?;
+            let (manifest_version, _) =
+                fs_utils::get_toml_version_timestamp(check_path!(manifest_path)?)?;
 
             println!("owlgo version {}", version);
+
+            if fs_utils::compare_stamps(&manifest_version, &version)? {
+                println!("\nmanifest out of date...");
+                println!("run `owlgo update`");
+            }
         }
     }
 
@@ -644,6 +654,35 @@ fn test_it(target: &str, in_file: &str, ans_file: &str) -> Result<(), OwlError> 
             }
         }),
     }
+}
+
+fn update() -> Result<(), OwlError> {
+    let mut manifest_path = fs_utils::ensure_dir_from_home(&[OWL_DIR])?;
+    manifest_path.push(MANIFEST);
+
+    if !manifest_path.exists() {
+        fs_utils::create_toml(check_path!(manifest_path)?, TOML_TEMPLATE)?;
+    }
+
+    let version = fs_utils::extract_toml_version(TOML_TEMPLATE)?;
+    let (_, timestamp) = fs_utils::get_toml_version_timestamp(check_path!(manifest_path)?)?;
+
+    let (version_out_of_date, timestamp_out_of_date) =
+        fs_utils::check_for_updates(MANIFEST_HEAD_URL, &version, &timestamp)?;
+
+    if timestamp_out_of_date {
+        println!("manifest out of date...");
+        println!("updating manifest...");
+
+        fs_utils::update_toml(check_path!(manifest_path)?, MANIFEST_URL)?
+    }
+
+    if version_out_of_date {
+        println!("owlgo out of date...");
+        println!("run `cargo install --force owlgo`")
+    }
+
+    Ok(())
 }
 
 fn main() {
@@ -765,6 +804,11 @@ fn main() {
             let ans_file = sub_matches.get_one::<String>("ANS").expect("required");
 
             if let Err(e) = test(prog, in_file, ans_file) {
+                report_owl_err!(&e);
+            }
+        }
+        Some(("update", _)) => {
+            if let Err(e) = update() {
                 report_owl_err!(&e);
             }
         }

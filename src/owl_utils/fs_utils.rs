@@ -1,13 +1,13 @@
 use std::collections::VecDeque;
 use std::ffi::OsStr;
 use std::fs::{self, File, OpenOptions};
-use std::io::{BufRead, BufReader, BufWriter, Write, copy};
+use std::io::{BufRead, BufReader, BufWriter, Read, Write, copy};
 use std::path::{Path, PathBuf};
 use toml_edit::{DocumentMut, value};
 use zip::ZipArchive;
 
 use super::owl_error::{
-    OwlError, check_path, file_error, file_not_found, net_error, no_entry_found,
+    OwlError, check_manifest, check_path, file_error, file_not_found, net_error, no_entry_found,
 };
 
 pub fn as_ans_file(in_file: &str) -> Result<String, OwlError> {
@@ -35,6 +35,43 @@ pub fn as_ans_file(in_file: &str) -> Result<String, OwlError> {
             .ok_or(file_error!(check_path!(ans_path)?))?
             .to_string())
     }
+}
+
+pub fn check_for_updates(
+    url: &str,
+    local_version: &str,
+    local_timestamp: &str,
+) -> Result<(bool, bool), OwlError> {
+    let mut resp = reqwest::blocking::get(url).map_err(|e| net_error!(e))?;
+
+    let mut toml_str = String::new();
+    resp.read_to_string(&mut toml_str)
+        .map_err(|e| file_error!(e))?;
+
+    let doc = toml_str
+        .parse::<DocumentMut>()
+        .map_err(|e| file_error!(e))?;
+
+    let remote_version = check_manifest!(doc["manifest"], "version")?;
+    let remote_timestamp = check_manifest!(doc["manifest"], "timestamp")?;
+
+    Ok((
+        compare_stamps(local_version, &remote_version)?,
+        compare_stamps(local_timestamp, &remote_timestamp)?,
+    ))
+}
+
+pub fn compare_stamps(s1: &str, s2: &str) -> Result<bool, OwlError> {
+    for (s, t) in s1.split('.').into_iter().zip(s2.split('.').into_iter()) {
+        let s_num = s.parse::<usize>().map_err(|e| file_error!(e))?;
+        let t_num = t.parse::<usize>().map_err(|e| file_error!(e))?;
+
+        if s_num < t_num {
+            return Ok(true);
+        }
+    }
+
+    Ok(false)
 }
 
 pub fn copy_file(src: &str, dst: &str) -> Result<(), OwlError> {
@@ -139,6 +176,14 @@ pub fn extract_archive(filename: &str, dir: &str) -> Result<(), OwlError> {
     Ok(())
 }
 
+pub fn extract_toml_version(toml_template: &str) -> Result<String, OwlError> {
+    let doc = toml_template
+        .parse::<DocumentMut>()
+        .map_err(|e| file_error!(e))?;
+
+    check_manifest!(doc["manifest"], "version")
+}
+
 pub fn find_by_ext(root_dir: String, target_ext: &str) -> Result<Vec<String>, OwlError> {
     let mut test_cases: Vec<String> = Vec::new();
 
@@ -198,13 +243,8 @@ pub fn get_toml_entry(filepath: &str, tables: &[&str], name: &str) -> Result<Str
         .map_err(|e| file_error!(e))?;
 
     for &table in tables {
-        if let Some(entry) = doc[table].get(name) {
-            return entry
-                .as_value()
-                .ok_or(no_entry_found!(name))?
-                .as_str()
-                .ok_or(no_entry_found!(name))
-                .map(|ok| ok.to_string());
+        if doc[table].get(name).is_some() {
+            return check_manifest!(doc[table], name);
         }
     }
 
@@ -230,23 +270,8 @@ pub fn get_toml_version_timestamp(filepath: &str) -> Result<(String, String), Ow
         .parse::<DocumentMut>()
         .map_err(|e| file_error!(e))?;
 
-    let version = doc["manifest"]
-        .get("version")
-        .ok_or(no_entry_found!("version"))?
-        .as_value()
-        .ok_or(no_entry_found!("version"))?
-        .as_str()
-        .ok_or(no_entry_found!("version"))
-        .map(|ok| ok.to_string())?;
-
-    let timestamp = doc["manifest"]
-        .get("timestamp")
-        .ok_or(no_entry_found!("timestamp"))?
-        .as_value()
-        .ok_or(no_entry_found!("timestamp"))?
-        .as_str()
-        .ok_or(no_entry_found!("timestamp"))
-        .map(|ok| ok.to_string())?;
+    let version = check_manifest!(doc["manifest"], "version")?;
+    let timestamp = check_manifest!(doc["manifest"], "timestamp")?;
 
     Ok((version, timestamp))
 }
@@ -260,6 +285,40 @@ pub fn remove_path(file_or_dir: &str) -> Result<(), OwlError> {
     } else if metadata.is_file() {
         fs::remove_file(path).map_err(|e| file_error!(e))?;
     }
+
+    Ok(())
+}
+
+pub fn update_toml(filepath: &str, url: &str) -> Result<(), OwlError> {
+    let mut resp = reqwest::blocking::get(url).map_err(|e| net_error!(e))?;
+
+    let mut remote_toml_str = String::new();
+    resp.read_to_string(&mut remote_toml_str)
+        .map_err(|e| file_error!(e))?;
+
+    let remote_doc = remote_toml_str
+        .parse::<DocumentMut>()
+        .map_err(|e| file_error!(e))?;
+
+    let local_toml_str = fs::read_to_string(filepath).map_err(|e| file_error!(e))?;
+    let mut local_doc = local_toml_str
+        .parse::<DocumentMut>()
+        .map_err(|e| file_error!(e))?;
+
+    local_doc["manifest"] = remote_doc["manifest"].clone();
+    local_doc["quests"] = remote_doc["quests"].clone();
+
+    let manifest_file = OpenOptions::new()
+        .write(true)
+        .open(filepath)
+        .map_err(|e| file_error!(e))?;
+
+    let mut writer = BufWriter::new(manifest_file);
+
+    writer
+        .write_all(local_doc.to_string().as_bytes())
+        .map_err(|e| file_error!(e))?;
+    writer.flush().map_err(|e| file_error!(e))?;
 
     Ok(())
 }
