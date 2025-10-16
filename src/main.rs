@@ -6,7 +6,7 @@ use std::path::Path;
 mod owl_utils;
 use owl_utils::{cmd_utils, fs_utils, owl_error::OwlError, prog_lang};
 
-const OWL_DIR: &str = ".owl";
+const OWL_DIR: &str = ".owlgo";
 const MANIFEST: &str = ".manifest.toml";
 const TEMPLATE_STEM: &str = ".template";
 const TMP_ARCHIVE: &str = ".tmp.zip";
@@ -14,7 +14,8 @@ const STASH_DIR: &str = ".stash";
 
 const TOML_TEMPLATE: &str = r#"
 [manifest]
-version = "0.0.0"
+version = "0.1.1"
+timestamp = "0.0.0"
 
 [quests]
 
@@ -23,7 +24,7 @@ version = "0.0.0"
 
 macro_rules! report_owl_err {
     ($expr:expr) => {
-        eprintln!("\x1b[31m[owl error]\x1b[0m: {}", $expr);
+        eprintln!("\x1b[31m[owlgo error]\x1b[0m: {}", $expr);
     };
 }
 
@@ -41,7 +42,7 @@ macro_rules! report_test_failed {
 }
 
 fn cli() -> Command {
-    Command::new("owl")
+    Command::new("owlgo")
         .about("A lightweight CLI to assist in solving CP problems")
         .subcommand_required(true)
         .arg_required_else_help(true)
@@ -54,7 +55,7 @@ fn cli() -> Command {
                 .arg_required_else_help(true),
         )
         .subcommand(
-            Command::new("clean")
+            Command::new("clear")
                 .about("removes all stashed test cases (and solutions)")
                 .arg(arg!(--stash "Removes all stashed programs"))
                 .arg(arg!(--all "Removes all test cases and stashed programs")),
@@ -135,6 +136,11 @@ fn cli() -> Command {
                 .arg(arg!(<ANS> "The answer file to the test case"))
                 .arg_required_else_help(true),
         )
+        .subcommand(
+            Command::new("version")
+                .about("outputs the current version")
+                .arg(arg!(-l --lang <EXT> "Outputs the system version of the language")),
+        )
 }
 
 fn add(name: &str, url: &str, and_fetch: bool) -> Result<(), OwlError> {
@@ -145,10 +151,16 @@ fn add(name: &str, url: &str, and_fetch: bool) -> Result<(), OwlError> {
     manifest_path.push(MANIFEST);
 
     if !manifest_path.exists() {
-        fs_utils::create_toml_with_entry(&manifest_path, TOML_TEMPLATE, "personal", name, url)?
+        fs_utils::create_toml_with_entry(
+            check_path!(manifest_path)?,
+            TOML_TEMPLATE,
+            "personal",
+            name,
+            url,
+        )?;
     } else {
-        fs_utils::update_toml_entry(&manifest_path, "personal", name, url)?
-    };
+        fs_utils::update_toml_entry(check_path!(manifest_path)?, "personal", name, url)?;
+    }
 
     if and_fetch {
         fetch_by_name(name)?;
@@ -226,7 +238,7 @@ fn fetch(name: &str, dir: &str) -> Result<(), OwlError> {
         return Err(file_not_found!(path_str));
     }
 
-    let url = fs_utils::get_toml_entry(&manifest_path, &["quests", "personal"], name)?;
+    let url = fs_utils::get_toml_entry(check_path!(manifest_path)?, &["personal", "quests"], name)?;
 
     fs_utils::download_file(&url, TMP_ARCHIVE)?;
     fs_utils::extract_archive(TMP_ARCHIVE, dir)?;
@@ -447,35 +459,6 @@ fn set_git_remote(remote: &str, force: bool) -> Result<(), OwlError> {
     Ok(())
 }
 
-fn sync_git_remote(force: bool) -> Result<(), OwlError> {
-    let mut stash_path = fs_utils::ensure_dir_from_home(&[OWL_DIR, STASH_DIR])?;
-    stash_path.push(".git");
-
-    if !stash_path.exists() {
-        return Err(file_not_found!(check_path!(stash_path)?));
-    }
-
-    stash_path.pop();
-
-    let stash_dir = check_path!(stash_path)?;
-
-    let stdout = cmd_utils::git_fetch(stash_dir, "origin", "main")?;
-    println!("{}", stdout);
-
-    if force {
-        let stdout = cmd_utils::git_reset(stash_dir, "origin", "main")?;
-        println!("{}", stdout);
-    }
-
-    let stdout = cmd_utils::git_pull(stash_dir, "origin", "main")?;
-    println!("{}", stdout);
-
-    let stdout = cmd_utils::git_status(stash_dir)?;
-    println!("{}", stdout);
-
-    Ok(())
-}
-
 fn show(
     name: &str,
     test_name: Option<&String>,
@@ -523,6 +506,33 @@ fn show_it(target_file: &str, show_ans: bool) -> Result<(), OwlError> {
     Ok(())
 }
 
+fn show_version(lang_ext: Option<&String>) -> Result<(), OwlError> {
+    match lang_ext {
+        Some(ext) => {
+            let lang = prog_lang::get_prog_lang(ext)?;
+
+            match lang.version() {
+                Ok(stdout) => println!("{}", stdout),
+                Err(_) => return Err(command_not_found!(ext)),
+            }
+        }
+        None => {
+            let mut manifest_path = fs_utils::ensure_dir_from_home(&[OWL_DIR])?;
+            manifest_path.push(MANIFEST);
+
+            if !manifest_path.exists() {
+                fs_utils::create_toml(check_path!(manifest_path)?, TOML_TEMPLATE)?;
+            }
+
+            let (version, _) = fs_utils::get_toml_version_timestamp(check_path!(manifest_path)?)?;
+
+            println!("owlgo version {}", version);
+        }
+    }
+
+    Ok(())
+}
+
 fn stash(prog: &str, as_templ: bool) -> Result<(), OwlError> {
     let mut stash_path = fs_utils::ensure_dir_from_home(&[OWL_DIR, STASH_DIR])?;
 
@@ -541,6 +551,35 @@ fn stash(prog: &str, as_templ: bool) -> Result<(), OwlError> {
     stash_path.push(stash_file);
 
     fs_utils::copy_file(prog, check_path!(stash_path)?)
+}
+
+fn sync_git_remote(force: bool) -> Result<(), OwlError> {
+    let mut stash_path = fs_utils::ensure_dir_from_home(&[OWL_DIR, STASH_DIR])?;
+    stash_path.push(".git");
+
+    if !stash_path.exists() {
+        return Err(file_not_found!(check_path!(stash_path)?));
+    }
+
+    stash_path.pop();
+
+    let stash_dir = check_path!(stash_path)?;
+
+    let stdout = cmd_utils::git_fetch(stash_dir, "origin", "main")?;
+    println!("{}", stdout);
+
+    if force {
+        let stdout = cmd_utils::git_reset(stash_dir, "origin", "main")?;
+        println!("{}", stdout);
+    }
+
+    let stdout = cmd_utils::git_pull(stash_dir, "origin", "main")?;
+    println!("{}", stdout);
+
+    let stdout = cmd_utils::git_status(stash_dir)?;
+    println!("{}", stdout);
+
+    Ok(())
 }
 
 fn test(prog: &str, in_file: &str, ans_file: &str) -> Result<(), OwlError> {
@@ -620,6 +659,14 @@ fn main() {
                 report_owl_err!(&e);
             }
         }
+        Some(("clear", sub_matches)) => {
+            let stash = sub_matches.get_one::<bool>("stash").map_or(false, |&f| f);
+            let all = sub_matches.get_one::<bool>("all").map_or(false, |&f| f);
+
+            if let Err(e) = clear_stash(stash, all) {
+                report_owl_err!(&e);
+            }
+        }
         Some(("fetch", sub_matches)) => {
             let name = sub_matches.get_one::<String>("NAME").expect("required");
 
@@ -627,19 +674,17 @@ fn main() {
                 report_owl_err!(&e);
             }
         }
-        Some(("run", sub_matches)) => {
+        Some(("init", sub_matches)) => {
             let prog = sub_matches.get_one::<String>("PROG").expect("required");
 
-            if let Err(e) = run(prog) {
+            if let Err(e) = init_program(prog) {
                 report_owl_err!(&e);
             }
         }
-        Some(("test", sub_matches)) => {
-            let prog = sub_matches.get_one::<String>("PROG").expect("required");
-            let in_file = sub_matches.get_one::<String>("IN").expect("required");
-            let ans_file = sub_matches.get_one::<String>("ANS").expect("required");
+        Some(("push", sub_matches)) => {
+            let force = sub_matches.get_one::<bool>("force").map_or(false, |&f| f);
 
-            if let Err(e) = test(prog, in_file, ans_file) {
+            if let Err(e) = push_git_remote(force) {
                 report_owl_err!(&e);
             }
         }
@@ -657,6 +702,28 @@ fn main() {
             }
 
             if let Err(e) = quest(name, prog, test, case) {
+                report_owl_err!(&e);
+            }
+        }
+        Some(("remote", sub_matches)) => {
+            let remote = sub_matches.get_one::<String>("REMOTE").expect("required");
+            let force = sub_matches.get_one::<bool>("force").map_or(false, |&f| f);
+
+            if let Err(e) = set_git_remote(remote, force) {
+                report_owl_err!(&e);
+            }
+        }
+        Some(("restore", sub_matches)) => {
+            let prog = sub_matches.get_one::<String>("PROG").expect("required");
+
+            if let Err(e) = restore_program(prog) {
+                report_owl_err!(&e);
+            }
+        }
+        Some(("run", sub_matches)) => {
+            let prog = sub_matches.get_one::<String>("PROG").expect("required");
+
+            if let Err(e) = run(prog) {
                 report_owl_err!(&e);
             }
         }
@@ -685,36 +752,6 @@ fn main() {
                 report_owl_err!(&e);
             }
         }
-        Some(("restore", sub_matches)) => {
-            let prog = sub_matches.get_one::<String>("PROG").expect("required");
-
-            if let Err(e) = restore_program(prog) {
-                report_owl_err!(&e);
-            }
-        }
-        Some(("init", sub_matches)) => {
-            let prog = sub_matches.get_one::<String>("PROG").expect("required");
-
-            if let Err(e) = init_program(prog) {
-                report_owl_err!(&e);
-            }
-        }
-        Some(("clean", sub_matches)) => {
-            let stash = sub_matches.get_one::<bool>("stash").map_or(false, |&f| f);
-            let all = sub_matches.get_one::<bool>("all").map_or(false, |&f| f);
-
-            if let Err(e) = clear_stash(stash, all) {
-                report_owl_err!(&e);
-            }
-        }
-        Some(("remote", sub_matches)) => {
-            let remote = sub_matches.get_one::<String>("REMOTE").expect("required");
-            let force = sub_matches.get_one::<bool>("force").map_or(false, |&f| f);
-
-            if let Err(e) = set_git_remote(remote, force) {
-                report_owl_err!(&e);
-            }
-        }
         Some(("sync", sub_matches)) => {
             let force = sub_matches.get_one::<bool>("force").map_or(false, |&f| f);
 
@@ -722,10 +759,19 @@ fn main() {
                 report_owl_err!(&e);
             }
         }
-        Some(("push", sub_matches)) => {
-            let force = sub_matches.get_one::<bool>("force").map_or(false, |&f| f);
+        Some(("test", sub_matches)) => {
+            let prog = sub_matches.get_one::<String>("PROG").expect("required");
+            let in_file = sub_matches.get_one::<String>("IN").expect("required");
+            let ans_file = sub_matches.get_one::<String>("ANS").expect("required");
 
-            if let Err(e) = push_git_remote(force) {
+            if let Err(e) = test(prog, in_file, ans_file) {
+                report_owl_err!(&e);
+            }
+        }
+        Some(("version", sub_matches)) => {
+            let lang = sub_matches.get_one::<String>("lang");
+
+            if let Err(e) = show_version(lang) {
                 report_owl_err!(&e);
             }
         }
