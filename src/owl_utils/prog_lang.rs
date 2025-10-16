@@ -161,6 +161,16 @@ pub fn get_prog_lang(lang_ext: &str) -> Result<Box<dyn ProgLang>, OwlError> {
             };
             Ok(Box::new(dart_lang))
         }
+        "erl" => Ok(Box::new(ErlLang::new())),
+        "ex" => {
+            let elixir_lang = RuntimeLang {
+                name: "elixir",
+                cmd_str: "elixir",
+                cmd_args: &[],
+                ver_arg: "--version",
+            };
+            Ok(Box::new(elixir_lang))
+        }
         "go" => {
             let go_lang = ComptimeLang {
                 name: "go",
@@ -172,6 +182,20 @@ pub fn get_prog_lang(lang_ext: &str) -> Result<Box<dyn ProgLang>, OwlError> {
                 fn_build_files: None,
             };
             Ok(Box::new(go_lang))
+        }
+        "hs" => {
+            let haskell_lang = ComptimeLang {
+                name: "haskell",
+                cmd_str: "ghc",
+                ver_arg: "--version",
+                build_cmd_str: "ghc",
+                build_args: &["-O2", "-ferror-spans", "-threaded", "-rtsopts", "-dynamic"],
+                exe_flag: Some(("-o", ArgsPosition::Pre)),
+                fn_build_files: Some(|thread_stem| {
+                    vec![format!("{}.hi", thread_stem), format!("{}.o", thread_stem)]
+                }),
+            };
+            Ok(Box::new(haskell_lang))
         }
         "java" => {
             let java_lang = CustomLang {
@@ -224,6 +248,15 @@ pub fn get_prog_lang(lang_ext: &str) -> Result<Box<dyn ProgLang>, OwlError> {
             };
             Ok(Box::new(kotlin_lang))
         }
+        "lean" => {
+            let lean_lang = RuntimeLang {
+                name: "lean",
+                cmd_str: "lean",
+                cmd_args: &["--run"],
+                ver_arg: "--version",
+            };
+            Ok(Box::new(lean_lang))
+        }
         "lua" => {
             let lua_lang = RuntimeLang {
                 name: "lua",
@@ -232,6 +265,24 @@ pub fn get_prog_lang(lang_ext: &str) -> Result<Box<dyn ProgLang>, OwlError> {
                 ver_arg: "-v",
             };
             Ok(Box::new(lua_lang))
+        }
+        "ml" => {
+            let ocaml_lang = ComptimeLang {
+                name: "ocaml",
+                cmd_str: "ocamlopt",
+                ver_arg: "--version",
+                build_cmd_str: "ocamlopt",
+                build_args: &["-I", "+unix", "unix.cmxa", "-I", "+str", "str.cmxa"],
+                exe_flag: Some(("-o", ArgsPosition::Pre)),
+                fn_build_files: Some(|target_stem| {
+                    vec![
+                        format!("{}.cmi", target_stem),
+                        format!("{}.cmx", target_stem),
+                        format!("{}.o", target_stem),
+                    ]
+                }),
+            };
+            Ok(Box::new(ocaml_lang))
         }
         "odin" => {
             let odin_lang = ComptimeLang {
@@ -506,6 +557,81 @@ impl ProgLang for CustomLang {
     fn version_cmd(&self) -> Result<Command, OwlError> {
         let mut cmd = Command::new(self.build_cmd_str);
         cmd.arg(self.ver_arg);
+
+        Ok(cmd)
+    }
+}
+
+pub struct ErlLang {
+    name: &'static str,
+    cmd_str: &'static str,
+    build_args: &'static [&'static str],
+    post_run_args: &'static [&'static str],
+    pre_run_args: &'static [&'static str],
+    ver_args: &'static [&'static str],
+    fn_target_name: fn(&str) -> String,
+}
+
+impl ErlLang {
+    fn new() -> Self {
+        ErlLang {
+            name: "erlang",
+            cmd_str: "erl",
+            build_args: &["-compile"],
+            post_run_args: &["-s", "init", "stop", "-noshell"],
+            pre_run_args: &["-run"],
+            ver_args: &["-s", "erlang", "halt"],
+            fn_target_name: |target_stem| format!("{}.beam", target_stem),
+        }
+    }
+}
+
+impl ProgLang for ErlLang {
+    fn build_cmd(&self, filename: &str) -> Result<Command, OwlError> {
+        let mut cmd = Command::new(self.cmd_str);
+        cmd.args(self.build_args);
+        cmd.arg(filename);
+
+        Ok(cmd)
+    }
+
+    fn build_files(&self, _: &str) -> Option<Vec<String>> {
+        None
+    }
+
+    fn name(&self) -> &str {
+        self.name
+    }
+
+    fn run_it(&self, target: &str, stdin: Option<&str>) -> Result<String, OwlError> {
+        let mut cmd = Command::new(self.cmd_str);
+        cmd.args(self.pre_run_args);
+
+        let target_stem = Path::new(target)
+            .file_stem()
+            .and_then(OsStr::to_str)
+            .ok_or(file_error!(target))?;
+
+        cmd.arg(target_stem);
+        cmd.args(self.post_run_args);
+
+        match stdin {
+            Some(input) => cmd_utils::run_cmd_with_stdin(cmd, input),
+            None => cmd_utils::run_cmd(cmd),
+        }
+    }
+
+    fn should_build(&self) -> bool {
+        true
+    }
+
+    fn target_name(&self, target_stem: &str) -> String {
+        (self.fn_target_name)(target_stem)
+    }
+
+    fn version_cmd(&self) -> Result<Command, OwlError> {
+        let mut cmd = Command::new(self.cmd_str);
+        cmd.args(self.ver_args);
 
         Ok(cmd)
     }
