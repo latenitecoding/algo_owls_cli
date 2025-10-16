@@ -46,6 +46,20 @@ macro_rules! check_manifest {
 pub(crate) use check_manifest;
 
 #[macro_export]
+macro_rules! check_item {
+    ($expr:expr, $name:expr) => {
+        $expr
+            .as_value()
+            .map(|entry| entry.as_str())
+            .flatten()
+            .map(|entry| entry.to_string())
+            .ok_or(no_entry_found!($name))
+    };
+}
+
+pub(crate) use check_item;
+
+#[macro_export]
 macro_rules! check_path {
     ($expr:expr) => {
         $expr.to_str().ok_or(OwlError::UnrecognizedChars(

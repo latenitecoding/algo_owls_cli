@@ -14,10 +14,13 @@ const TEMPLATE_STEM: &str = ".template";
 const TMP_ARCHIVE: &str = ".tmp.zip";
 const STASH_DIR: &str = ".stash";
 
+// it must be that [manifest] is at the top and [personal] is at the bottom
 const TOML_TEMPLATE: &str = r#"
 [manifest]
 version = "0.1.2"
 timestamp = "0.0.0"
+
+[extensions]
 
 [quests]
 
@@ -50,10 +53,12 @@ fn cli() -> Command {
         .arg_required_else_help(true)
         .subcommand(
             Command::new("add")
-                .about("adds new personal quest to manifest")
-                .arg(arg!(<NAME> "The name of the quest"))
-                .arg(arg!(<URL> "The URL to fetch from"))
+                .about("adds new personal quest(s) to manifest")
+                .arg(arg!(<NAME> "The name of the quest/manifest"))
+                .arg(arg!(<UUID> "The URL/PATH to fetch from"))
                 .arg(arg!(-f --fetch "Fetches test cases"))
+                .arg(arg!(-m --manifest "The URL is a manifest to be committed"))
+                .arg(arg!(-l --local "The UUID is a local path"))
                 .arg_required_else_help(true),
         )
         .subcommand(
@@ -148,27 +153,49 @@ fn cli() -> Command {
         )
 }
 
-fn add(name: &str, url: &str, and_fetch: bool) -> Result<(), OwlError> {
+fn add(
+    name: &str,
+    uuid: &str,
+    and_fetch: bool,
+    is_manifest: bool,
+    is_local: bool,
+) -> Result<(), OwlError> {
     // this should always rewrite entries in the personal table
     // of the manifest TOML, which is the last table in the manifest
     // new entires can always be appended
     let mut manifest_path = fs_utils::ensure_dir_from_home(&[OWL_DIR])?;
     manifest_path.push(MANIFEST);
 
-    if !manifest_path.exists() {
+    if !is_manifest && !manifest_path.exists() {
         fs_utils::create_toml_with_entry(
             check_path!(manifest_path)?,
             TOML_TEMPLATE,
             "personal",
             name,
-            url,
+            uuid,
         )?;
-    } else {
-        fs_utils::update_toml_entry(check_path!(manifest_path)?, "personal", name, url)?;
+    } else if !is_manifest && manifest_path.exists() {
+        fs_utils::update_toml_entry(check_path!(manifest_path)?, "personal", name, uuid)?;
     }
 
-    if and_fetch {
+    if !is_manifest && and_fetch {
         fetch_by_name(name)?;
+    }
+
+    if is_manifest && !manifest_path.exists() {
+        fs_utils::create_toml(check_path!(manifest_path)?, TOML_TEMPLATE)?;
+    }
+
+    if is_manifest {
+        let some_tmp_archive = if and_fetch { Some(TMP_ARCHIVE) } else { None };
+
+        fs_utils::commit_manifest(
+            check_path!(manifest_path)?,
+            name,
+            uuid,
+            some_tmp_archive,
+            is_local,
+        )?;
     }
 
     Ok(())
@@ -245,10 +272,7 @@ fn fetch(name: &str, dir: &str) -> Result<(), OwlError> {
 
     let url = fs_utils::get_toml_entry(check_path!(manifest_path)?, &["personal", "quests"], name)?;
 
-    fs_utils::download_file(&url, TMP_ARCHIVE)?;
-    fs_utils::extract_archive(TMP_ARCHIVE, dir)?;
-
-    fs_utils::remove_path(TMP_ARCHIVE)
+    fs_utils::download_archive(&url, TMP_ARCHIVE, dir)
 }
 
 fn fetch_by_name(name: &str) -> Result<(), OwlError> {
@@ -739,10 +763,14 @@ fn main() {
     match matches.subcommand() {
         Some(("add", sub_matches)) => {
             let name = sub_matches.get_one::<String>("NAME").expect("required");
-            let url = sub_matches.get_one::<String>("URL").expect("required");
+            let uuid = sub_matches.get_one::<String>("UUID").expect("required");
             let fetch = sub_matches.get_one::<bool>("fetch").map_or(false, |&f| f);
+            let manif = sub_matches
+                .get_one::<bool>("manifest")
+                .map_or(false, |&f| f);
+            let local_path = sub_matches.get_one::<bool>("local").map_or(false, |&f| f);
 
-            if let Err(e) = add(name, url, fetch) {
+            if let Err(e) = add(name, uuid, fetch, manif, local_path) {
                 report_owl_err!(&e);
             }
         }

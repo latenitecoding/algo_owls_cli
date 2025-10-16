@@ -7,7 +7,8 @@ use toml_edit::{DocumentMut, value};
 use zip::ZipArchive;
 
 use super::owl_error::{
-    OwlError, check_manifest, check_path, file_error, file_not_found, net_error, no_entry_found,
+    OwlError, check_item, check_manifest, check_path, file_error, file_not_found, net_error,
+    no_entry_found,
 };
 
 pub fn as_ans_file(in_file: &str) -> Result<String, OwlError> {
@@ -75,6 +76,72 @@ pub fn check_for_updates(
         compare_stamps(local_version, &remote_version)?,
         compare_stamps(local_timestamp, &remote_timestamp)?,
     ))
+}
+
+pub fn commit_manifest(
+    manifest_path: &str,
+    name: &str,
+    uuid: &str,
+    and_fetch: Option<&str>,
+    is_local: bool,
+) -> Result<(), OwlError> {
+    let local_toml_str = fs::read_to_string(manifest_path).map_err(|e| file_error!(e))?;
+
+    let remote_toml_str = if is_local {
+        fs::read_to_string(uuid).map_err(|e| file_error!(e))?
+    } else {
+        let mut resp = reqwest::blocking::get(uuid).map_err(|e| net_error!(e))?;
+
+        let mut remote_toml_str = String::new();
+        resp.read_to_string(&mut remote_toml_str)
+            .map_err(|e| file_error!(e))?;
+
+        remote_toml_str
+    };
+
+    let mut local_doc = local_toml_str
+        .parse::<DocumentMut>()
+        .map_err(|e| file_error!(e))?;
+
+    let remote_doc = remote_toml_str
+        .parse::<DocumentMut>()
+        .map_err(|e| file_error!(e))?;
+
+    local_doc["extensions"][name] = remote_doc["manifest"]["timestamp"].clone();
+
+    if let Some(personal_table) = remote_doc["personal"].as_table() {
+        let mut quest_path = Path::new(manifest_path)
+            .parent()
+            .ok_or(file_error!(format!("no parent of {}", manifest_path)))?
+            .to_path_buf();
+
+        for (key, item) in personal_table.iter() {
+            local_doc["personal"][key] = item.clone();
+
+            if let Some(tmp_archive) = and_fetch {
+                quest_path.push(key);
+
+                let url = check_item!(item, key)?;
+                download_archive(&url, tmp_archive, check_path!(quest_path)?)?;
+
+                quest_path.pop();
+            }
+        }
+    }
+
+    let toml_file = OpenOptions::new()
+        .write(true)
+        .open(manifest_path)
+        .map_err(|e| file_error!(e))?;
+
+    let mut writer = BufWriter::new(toml_file);
+
+    writer
+        .write_all(local_doc.to_string().as_bytes())
+        .map_err(|e| file_error!(e))?;
+    writer.flush().map_err(|e| file_error!(e))?;
+
+    Ok(())
 }
 
 pub fn compare_stamps(s1: &str, s2: &str) -> Result<bool, OwlError> {
@@ -160,6 +227,12 @@ pub fn create_toml_with_entry(
     writer.flush().map_err(|e| file_error!(e))?;
 
     return Ok(());
+}
+
+pub fn download_archive(url: &str, tmp_archive: &str, out_dir: &str) -> Result<(), OwlError> {
+    download_file(url, tmp_archive)?;
+    extract_archive(tmp_archive, out_dir)?;
+    remove_path(tmp_archive)
 }
 
 pub fn download_file(url: &str, out: &str) -> Result<(), OwlError> {
