@@ -111,11 +111,12 @@ fn cli() -> Command {
         .subcommand(
             Command::new("show")
                 .about("prints the input(s) or answer(s) to the test cases")
-                .arg(arg!(<NAME> "The name of the quest"))
+                .arg(arg!(<NAME> "The name of the quest/solution"))
                 .arg(arg!(-t --test <TEST> "The specific test to print by name"))
                 .arg(arg!(-c --case <CASE> "The specific test to print by case number"))
                 .arg(arg!(-r --rand "Print a random test case"))
                 .arg(arg!(-a --ans "Print the answer instead of the input"))
+                .arg(arg!(-p --prog "Show a stashed program instead of a test case"))
                 .arg_required_else_help(true),
         )
         .subcommand(
@@ -462,7 +463,34 @@ fn set_git_remote(remote: &str, force: bool) -> Result<(), OwlError> {
     Ok(())
 }
 
-fn show(
+fn show_it(target_file: &str, show_ans: bool) -> Result<(), OwlError> {
+    let contents = if show_ans {
+        let ans_file = fs_utils::as_ans_file(target_file)?;
+
+        fs::read_to_string(ans_file).map_err(|e| file_error!(e))?
+    } else {
+        fs::read_to_string(target_file).map_err(|e| file_error!(e))?
+    };
+
+    println!("{}", contents);
+
+    Ok(())
+}
+
+fn show_program(prog: &str) -> Result<(), OwlError> {
+    let mut stash_path = fs_utils::ensure_dir_from_home(&[OWL_DIR, STASH_DIR])?;
+    stash_path.push(prog);
+
+    if !stash_path.exists() {
+        return Err(file_not_found!(prog));
+    }
+
+    cmd_utils::bat_file(check_path!(stash_path)?).or_else(|_| {
+        fs_utils::cat_file(check_path!(stash_path)?).map(|contents| println!("{}", contents))
+    })
+}
+
+fn show_test_case(
     name: &str,
     test_name: Option<&String>,
     case_id: usize,
@@ -491,20 +519,6 @@ fn show(
     for test_case in test_cases {
         show_it(&test_case, show_ans)?;
     }
-
-    Ok(())
-}
-
-fn show_it(target_file: &str, show_ans: bool) -> Result<(), OwlError> {
-    let contents = if show_ans {
-        let ans_file = fs_utils::as_ans_file(target_file)?;
-
-        fs::read_to_string(ans_file).map_err(|e| file_error!(e))?
-    } else {
-        fs::read_to_string(target_file).map_err(|e| file_error!(e))?
-    };
-
-    println!("{}", contents);
 
     Ok(())
 }
@@ -774,13 +788,20 @@ fn main() {
                 .map_or(0, |s| s.parse().expect("case id should be a number"));
             let rand = sub_matches.get_one::<bool>("rand").map_or(false, |&f| f);
             let ans = sub_matches.get_one::<bool>("ans").map_or(false, |&f| f);
+            let prog = sub_matches.get_one::<bool>("prog").map_or(false, |&f| f);
 
-            if rand {
-                case = rand::random::<u64>() as usize;
-            }
+            if prog {
+                if let Err(e) = show_program(name) {
+                    report_owl_err!(&e);
+                }
+            } else {
+                if rand {
+                    case = rand::random::<u64>() as usize;
+                }
 
-            if let Err(e) = show(name, test, case, ans) {
-                report_owl_err!(&e);
+                if let Err(e) = show_test_case(name, test, case, ans) {
+                    report_owl_err!(&e);
+                }
             }
         }
         Some(("stash", sub_matches)) => {

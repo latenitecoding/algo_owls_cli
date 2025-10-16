@@ -37,6 +37,22 @@ pub fn as_ans_file(in_file: &str) -> Result<String, OwlError> {
     }
 }
 
+pub fn cat_file(filepath: &str) -> Result<String, OwlError> {
+    let path = Path::new(filepath);
+
+    if !path.exists() {
+        return Err(file_not_found!(filepath));
+    }
+
+    let mut file = File::open(path).map_err(|e| file_error!(e))?;
+
+    let mut buffer = String::new();
+    file.read_to_string(&mut buffer)
+        .map_err(|e| file_error!(e))?;
+
+    Ok(buffer)
+}
+
 pub fn check_for_updates(
     url: &str,
     local_version: &str,

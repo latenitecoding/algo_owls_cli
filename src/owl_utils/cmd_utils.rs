@@ -49,6 +49,21 @@ fn stdout_else_stderr(mut child: Child) -> Result<String, OwlError> {
     }
 }
 
+pub fn bat_file(filepath: &str) -> Result<(), OwlError> {
+    let mut child = Command::new("bat")
+        .arg(filepath)
+        .spawn()
+        .map_err(|e| program_error!(e))?;
+
+    let status = child.wait().map_err(|e| program_error!(e))?;
+
+    if status.success() {
+        Ok(())
+    } else {
+        Err(program_error!(format!("could not bat {}", filepath)))
+    }
+}
+
 pub fn git_add(dir: &str) -> Result<String, OwlError> {
     let child = Command::new("git")
         .args(["add", "-A"])
