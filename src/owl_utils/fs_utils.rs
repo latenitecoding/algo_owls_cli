@@ -292,6 +292,28 @@ pub fn get_toml_version_timestamp(filepath: &str) -> Result<(String, String), Ow
     Ok((version, timestamp))
 }
 
+pub fn list_dir(root_dir: String) -> Result<String, OwlError> {
+    let mut queue: VecDeque<String> = VecDeque::new();
+    queue.push_back(root_dir);
+
+    let mut buffer = String::new();
+
+    while let Some(dir) = queue.pop_front() {
+        for entry in fs::read_dir(dir).map_err(|e| file_error!(e))? {
+            let path = entry.map_err(|e| file_error!(e))?.path();
+
+            if path.is_dir() {
+                queue.push_back(check_path!(path)?.to_string());
+            } else if path.is_file() {
+                buffer.push_str(check_path!(path)?);
+                buffer.push('\n');
+            }
+        }
+    }
+
+    Ok(buffer)
+}
+
 pub fn remove_path(file_or_dir: &str) -> Result<(), OwlError> {
     let path = Path::new(file_or_dir);
     let metadata = fs::metadata(path).map_err(|e| file_error!(e))?;

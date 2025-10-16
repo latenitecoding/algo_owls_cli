@@ -74,6 +74,7 @@ fn cli() -> Command {
                 .arg(arg!(<PROG> "The program to initialize from the template"))
                 .arg_required_else_help(true),
         )
+        .subcommand(Command::new("list").about("outputs information on stashed files"))
         .subcommand(
             Command::new("push")
                 .about("pushes all stashed solutions to the remote")
@@ -274,6 +275,15 @@ fn init_program(prog: &str) -> Result<(), OwlError> {
     stash_path.push(stash_file);
 
     fs_utils::copy_file(check_path!(stash_path)?, prog)
+}
+
+fn list_stash() -> Result<(), OwlError> {
+    let stash_path = fs_utils::ensure_dir_from_home(&[OWL_DIR, STASH_DIR])?;
+
+    cmd_utils::list_all(check_path!(stash_path)?).or_else(|_| {
+        fs_utils::list_dir(check_path!(stash_path)?.to_string())
+            .map(|contents| println!("{}", contents))
+    })
 }
 
 fn push_git_remote(force: bool) -> Result<(), OwlError> {
@@ -731,6 +741,11 @@ fn main() {
             let prog = sub_matches.get_one::<String>("PROG").expect("required");
 
             if let Err(e) = init_program(prog) {
+                report_owl_err!(&e);
+            }
+        }
+        Some(("list", _)) => {
+            if let Err(e) = list_stash() {
                 report_owl_err!(&e);
             }
         }

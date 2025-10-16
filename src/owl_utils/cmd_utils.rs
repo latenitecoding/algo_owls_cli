@@ -204,6 +204,22 @@ pub fn git_status(dir: &str) -> Result<String, OwlError> {
     stdout_else_stderr(child)
 }
 
+pub fn list_all(dir: &str) -> Result<(), OwlError> {
+    let mut child = Command::new("tree")
+        .args(&["-s", "-h", "--du"])
+        .arg(dir)
+        .spawn()
+        .map_err(|e| program_error!(e))?;
+
+    let status = child.wait().map_err(|e| program_error!(e))?;
+
+    if status.success() {
+        Ok(())
+    } else {
+        Err(program_error!(format!("could not bat {}", dir)))
+    }
+}
+
 pub fn run_cmd(mut cmd: Command) -> Result<String, OwlError> {
     let child = cmd
         .stdout(Stdio::piped())
