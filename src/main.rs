@@ -528,12 +528,12 @@ fn show_version(lang_ext: Option<&String>) -> Result<(), OwlError> {
             }
 
             let version = fs_utils::extract_toml_version(TOML_TEMPLATE)?;
-            let (manifest_version, _) =
+            let (manifest_version, timestamp) =
                 fs_utils::get_toml_version_timestamp(check_path!(manifest_path)?)?;
 
             println!("owlgo version {}", version);
 
-            if fs_utils::compare_stamps(&manifest_version, &version)? {
+            if fs_utils::compare_stamps(&manifest_version, &version)? || timestamp == "0.0.0" {
                 println!("\nmanifest out of date...");
                 println!("run `owlgo update`");
             }
