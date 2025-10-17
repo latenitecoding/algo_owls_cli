@@ -73,21 +73,21 @@ pub fn check_for_updates(
 pub fn commit_manifest(
     manifest_path: &str,
     name: &str,
-    uuid: &str,
+    uri: &str,
     and_fetch: Option<&str>,
     is_local: bool,
 ) -> Result<(), OwlError> {
     let mut local_doc = load_toml_doc(manifest_path, true)?;
-    let remote_doc = load_toml_doc(uuid, is_local)?;
+    let remote_doc = load_toml_doc(uri, is_local)?;
 
-    let metadata = if is_local {
+    let ext_uri = if is_local {
         format!("{}.path", name)
     } else {
         format!("{}.url", name)
     };
 
     local_doc["extensions"][name] = remote_doc["manifest"]["timestamp"].clone();
-    local_doc["metadata"][metadata] = value(uuid);
+    local_doc["ext_uri"][ext_uri] = value(uri);
 
     if let Some(personal_table) = remote_doc["personal"].as_table() {
         let mut quest_path = Path::new(manifest_path)
@@ -367,11 +367,11 @@ pub fn list_dir(root_dir: String) -> Result<String, OwlError> {
     Ok(buffer)
 }
 
-fn load_toml_doc(uuid: &str, is_local: bool) -> Result<DocumentMut, OwlError> {
+fn load_toml_doc(uri: &str, is_local: bool) -> Result<DocumentMut, OwlError> {
     let toml_str = if is_local {
-        fs::read_to_string(uuid).map_err(|e| file_error!(e))?
+        fs::read_to_string(uri).map_err(|e| file_error!(e))?
     } else {
-        let mut resp = reqwest::blocking::get(uuid).map_err(|e| net_error!(e))?;
+        let mut resp = reqwest::blocking::get(uri).map_err(|e| net_error!(e))?;
 
         let mut remote_toml_str = String::new();
         resp.read_to_string(&mut remote_toml_str)
@@ -407,27 +407,27 @@ pub fn update_extensions(manifest_path: &str, tmp_archive: &str) -> Result<(), O
 
         let mut tmp_doc = DocumentMut::new();
         tmp_doc["extensions"] = Table::new().into();
-        tmp_doc["metadata"] = Table::new().into();
+        tmp_doc["ext_uri"] = Table::new().into();
         tmp_doc["personal"] = Table::new().into();
 
         for (ext_name, timestamp) in ext_table.iter() {
             let ext_path = format!("{}.path", ext_name);
             let ext_url = format!("{}.url", ext_name);
 
-            let is_local = local_doc["metadata"].get(&ext_path).is_some();
-            let is_remote = local_doc["metadata"].get(&ext_url).is_some();
+            let is_local = local_doc["ext_uri"].get(&ext_path).is_some();
+            let is_remote = local_doc["ext_uri"].get(&ext_url).is_some();
 
             if !is_local && !is_remote {
                 return Err(file_not_found!(ext_name));
             }
 
-            let uuid = if is_local {
-                check_manifest!(local_doc["metadata"], &ext_path)?
+            let uri = if is_local {
+                check_manifest!(local_doc["ext_uri"], &ext_path)?
             } else {
-                check_manifest!(local_doc["metadata"], &ext_url)?
+                check_manifest!(local_doc["ext_uri"], &ext_url)?
             };
 
-            let remote_doc = load_toml_doc(&uuid, is_local)?;
+            let remote_doc = load_toml_doc(&uri, is_local)?;
 
             if !compare_stamps(
                 &check_item!(timestamp, "timestamp")?,
@@ -439,9 +439,9 @@ pub fn update_extensions(manifest_path: &str, tmp_archive: &str) -> Result<(), O
             tmp_doc["extensions"][ext_name] =
                 value(check_manifest!(remote_doc["manifest"], "timestamp")?);
             if is_local {
-                tmp_doc["metadata"][ext_path] = value(uuid);
+                tmp_doc["ext_uri"][ext_path] = value(uri);
             } else {
-                tmp_doc["metadata"][ext_url] = value(uuid);
+                tmp_doc["ext_uri"][ext_url] = value(uri);
             }
 
             if let Some(personal_table) = remote_doc["personal"].as_table() {
@@ -467,9 +467,9 @@ pub fn update_extensions(manifest_path: &str, tmp_archive: &str) -> Result<(), O
             }
         }
 
-        if let Some(tmp_metadata_table) = tmp_doc["metadata"].as_table() {
-            for (key, item) in tmp_metadata_table.iter() {
-                local_doc["metadata"][key] = item.clone();
+        if let Some(tmp_uri_table) = tmp_doc["ext_uri"].as_table() {
+            for (key, item) in tmp_uri_table.iter() {
+                local_doc["ext_uri"][key] = item.clone();
             }
         }
 

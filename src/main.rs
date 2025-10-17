@@ -18,12 +18,12 @@ const STASH_DIR: &str = ".stash";
 // it must be that [manifest] is at the top and [personal] is at the bottom
 const TOML_TEMPLATE: &str = r#"
 [manifest]
-version = "0.1.2"
+version = "0.1.3"
 timestamp = "0.0.0"
 
 [extensions]
 
-[metadata]
+[ext_uri]
 
 [quests]
 
@@ -59,10 +59,10 @@ fn cli() -> Command {
             Command::new("add")
                 .about("adds new personal quest(s) to manifest")
                 .arg(arg!(<NAME> "The name of the quest/manifest"))
-                .arg(arg!(<UUID> "The URL/PATH to fetch from"))
+                .arg(arg!(<URI> "The URL/PATH to fetch from"))
                 .arg(arg!(-f --fetch "Fetches test cases"))
                 .arg(arg!(-m --manifest "The URL is a manifest to be committed"))
-                .arg(arg!(-l --local "The UUID is a local path"))
+                .arg(arg!(-l --local "The URI is a local path"))
                 .arg_required_else_help(true),
         )
         .subcommand(
@@ -163,7 +163,7 @@ fn cli() -> Command {
 
 fn add(
     name: &str,
-    uuid: &str,
+    uri: &str,
     and_fetch: bool,
     is_manifest: bool,
     is_local: bool,
@@ -180,10 +180,10 @@ fn add(
             TOML_TEMPLATE,
             "personal",
             name,
-            uuid,
+            uri,
         )?;
     } else if !is_manifest && manifest_path.exists() {
-        fs_utils::update_toml_entry(check_path!(manifest_path)?, "personal", name, uuid)?;
+        fs_utils::update_toml_entry(check_path!(manifest_path)?, "personal", name, uri)?;
     }
 
     if !is_manifest && and_fetch {
@@ -200,7 +200,7 @@ fn add(
         fs_utils::commit_manifest(
             check_path!(manifest_path)?,
             name,
-            uuid,
+            uri,
             some_tmp_archive,
             is_local,
         )?;
@@ -776,12 +776,12 @@ fn main() {
     match matches.subcommand() {
         Some(("add", sub_matches)) => {
             let name = sub_matches.get_one::<String>("NAME").expect("required");
-            let uuid = sub_matches.get_one::<String>("UUID").expect("required");
+            let uri = sub_matches.get_one::<String>("URI").expect("required");
             let fetch = sub_matches.get_one::<bool>("fetch").is_some_and(|&f| f);
             let manif = sub_matches.get_one::<bool>("manifest").is_some_and(|&f| f);
             let local_path = sub_matches.get_one::<bool>("local").is_some_and(|&f| f);
 
-            if let Err(e) = add(name, uuid, fetch, manif, local_path) {
+            if let Err(e) = add(name, uri, fetch, manif, local_path) {
                 report_owl_err!(&e);
             }
         }
