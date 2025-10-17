@@ -448,7 +448,9 @@ pub fn update_extensions(manifest_path: &str, tmp_archive: &str) -> Result<(), O
                     quest_path.push(key);
 
                     let url = check_item!(item, key)?;
-                    remove_path(check_path!(quest_path)?)?;
+                    if quest_path.exists() {
+                        remove_path(check_path!(quest_path)?)?;
+                    }
                     download_archive(&url, tmp_archive, check_path!(quest_path)?)?;
 
                     quest_path.pop();

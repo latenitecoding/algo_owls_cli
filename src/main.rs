@@ -22,6 +22,8 @@ timestamp = "0.0.0"
 
 [extensions]
 
+[metadata]
+
 [quests]
 
 [personal]
