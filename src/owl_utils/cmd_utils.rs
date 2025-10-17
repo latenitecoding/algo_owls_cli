@@ -91,7 +91,7 @@ pub fn git_checkout(dir: &str, branch: &str) -> Result<String, OwlError> {
 
 pub fn git_commit(dir: &str) -> Result<String, OwlError> {
     let child = Command::new("git")
-        .args(["commit", "-m", "\"algo owls CLI submission\""])
+        .args(["commit", "-m", "\"owlgo CLI submission\""])
         .current_dir(dir)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -174,7 +174,7 @@ pub fn git_pull(dir: &str, remote: &str, branch: &str) -> Result<String, OwlErro
 pub fn git_push(dir: &str, remote: &str, branch: &str, force: bool) -> Result<String, OwlError> {
     let child = if force {
         Command::new("git")
-            .args(["push", "-f", remote, branch])
+            .args(["push", "-f", "--set-upstream", remote, branch])
             .current_dir(dir)
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
@@ -182,7 +182,7 @@ pub fn git_push(dir: &str, remote: &str, branch: &str, force: bool) -> Result<St
             .map_err(|e| program_error!(e))?
     } else {
         Command::new("git")
-            .args(["push", remote, branch])
+            .args(["push", "--set-upstream", remote, branch])
             .current_dir(dir)
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
