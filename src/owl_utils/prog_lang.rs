@@ -398,7 +398,7 @@ impl ProgLang for ComptimeLang {
                     cmd.arg(exe_arg);
                 }
             } else {
-                cmd.args(&[flag, &target_stem]);
+                cmd.args([flag, &target_stem]);
             }
 
             if pos == ArgsPosition::Pre {
@@ -412,11 +412,8 @@ impl ProgLang for ComptimeLang {
     }
 
     fn build_files(&self, target_stem: &str) -> Option<Vec<String>> {
-        if let Some(foo) = self.fn_build_files {
-            Some((foo)(target_stem))
-        } else {
-            None
-        }
+        self.fn_build_files
+            .map(|get_build_files| (get_build_files)(target_stem))
     }
 
     fn name(&self) -> &str {
@@ -518,11 +515,8 @@ impl ProgLang for CustomLang {
     }
 
     fn build_files(&self, target_stem: &str) -> Option<Vec<String>> {
-        if let Some(foo) = self.fn_build_files {
-            Some((foo)(target_stem))
-        } else {
-            None
-        }
+        self.fn_build_files
+            .map(|get_build_files| (get_build_files)(target_stem))
     }
 
     fn name(&self) -> &str {

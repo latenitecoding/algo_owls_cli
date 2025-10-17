@@ -207,7 +207,7 @@ pub fn git_status(dir: &str) -> Result<String, OwlError> {
 
 pub fn list_all(dir: &str) -> Result<(), OwlError> {
     let mut child = Command::new("tree")
-        .args(&["-s", "-h", "--du"])
+        .args(["-s", "-h", "--du"])
         .arg(dir)
         .spawn()
         .map_err(|e| program_error!(e))?;

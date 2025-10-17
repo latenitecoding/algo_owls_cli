@@ -2,6 +2,7 @@ use clap::{Command, arg};
 use std::ffi::OsStr;
 use std::fs;
 use std::path::Path;
+use std::process;
 
 mod owl_utils;
 use owl_utils::{cmd_utils, fs_utils, owl_error::OwlError, prog_lang};
@@ -32,6 +33,7 @@ timestamp = "0.0.0"
 macro_rules! report_owl_err {
     ($expr:expr) => {
         eprintln!("\x1b[31m[owlgo error]\x1b[0m: {}", $expr);
+        process::exit(1);
     };
 }
 
@@ -233,12 +235,12 @@ fn cleanup_program(
     build_files: Option<Vec<String>>,
 ) -> Result<(), OwlError> {
     if target != prog {
-        fs_utils::remove_path(&target)?;
+        fs_utils::remove_path(target)?;
     }
 
     if let Some(build_files) = &build_files {
         for build_file in build_files {
-            fs_utils::remove_path(&build_file)?;
+            fs_utils::remove_path(build_file)?;
         }
     }
 
@@ -386,10 +388,10 @@ fn quest(
             .and_then(OsStr::to_str)
             .ok_or(file_error!(test_case))?;
 
-        if let Some(name) = test_name {
-            if in_stem != name {
-                continue;
-            }
+        if let Some(name) = test_name
+            && in_stem != name
+        {
+            continue;
         }
 
         if case_id > 0 && count != (case_id % total) {
@@ -432,9 +434,9 @@ fn quest_it(
         .and_then(OsStr::to_str)
         .ok_or(file_error!(test_case))?;
 
-    let ans_file = fs_utils::as_ans_file(&test_case)?;
+    let ans_file = fs_utils::as_ans_file(test_case)?;
 
-    match test_it(&target, &test_case, &ans_file) {
+    match test_it(target, test_case, &ans_file) {
         Ok(elapsed) => {
             println!(
                 "({}/{}) [{}ms] {} \x1b[32mpassed test\x1b[0m 🎉\n",
@@ -775,19 +777,17 @@ fn main() {
         Some(("add", sub_matches)) => {
             let name = sub_matches.get_one::<String>("NAME").expect("required");
             let uuid = sub_matches.get_one::<String>("UUID").expect("required");
-            let fetch = sub_matches.get_one::<bool>("fetch").map_or(false, |&f| f);
-            let manif = sub_matches
-                .get_one::<bool>("manifest")
-                .map_or(false, |&f| f);
-            let local_path = sub_matches.get_one::<bool>("local").map_or(false, |&f| f);
+            let fetch = sub_matches.get_one::<bool>("fetch").is_some_and(|&f| f);
+            let manif = sub_matches.get_one::<bool>("manifest").is_some_and(|&f| f);
+            let local_path = sub_matches.get_one::<bool>("local").is_some_and(|&f| f);
 
             if let Err(e) = add(name, uuid, fetch, manif, local_path) {
                 report_owl_err!(&e);
             }
         }
         Some(("clear", sub_matches)) => {
-            let stash = sub_matches.get_one::<bool>("stash").map_or(false, |&f| f);
-            let all = sub_matches.get_one::<bool>("all").map_or(false, |&f| f);
+            let stash = sub_matches.get_one::<bool>("stash").is_some_and(|&f| f);
+            let all = sub_matches.get_one::<bool>("all").is_some_and(|&f| f);
 
             if let Err(e) = clear_stash(stash, all) {
                 report_owl_err!(&e);
@@ -813,7 +813,7 @@ fn main() {
             }
         }
         Some(("push", sub_matches)) => {
-            let force = sub_matches.get_one::<bool>("force").map_or(false, |&f| f);
+            let force = sub_matches.get_one::<bool>("force").is_some_and(|&f| f);
 
             if let Err(e) = push_git_remote(force) {
                 report_owl_err!(&e);
@@ -826,7 +826,7 @@ fn main() {
             let mut case = sub_matches
                 .get_one::<String>("case")
                 .map_or(0, |s| s.parse().expect("case id should be a number"));
-            let rand = sub_matches.get_one::<bool>("rand").map_or(false, |&f| f);
+            let rand = sub_matches.get_one::<bool>("rand").is_some_and(|&f| f);
 
             if rand {
                 case = rand::random::<u64>() as usize;
@@ -838,7 +838,7 @@ fn main() {
         }
         Some(("remote", sub_matches)) => {
             let remote = sub_matches.get_one::<String>("REMOTE").expect("required");
-            let force = sub_matches.get_one::<bool>("force").map_or(false, |&f| f);
+            let force = sub_matches.get_one::<bool>("force").is_some_and(|&f| f);
 
             if let Err(e) = set_git_remote(remote, force) {
                 report_owl_err!(&e);
@@ -864,9 +864,9 @@ fn main() {
             let mut case = sub_matches
                 .get_one::<String>("case")
                 .map_or(0, |s| s.parse().expect("case id should be a number"));
-            let rand = sub_matches.get_one::<bool>("rand").map_or(false, |&f| f);
-            let ans = sub_matches.get_one::<bool>("ans").map_or(false, |&f| f);
-            let prog = sub_matches.get_one::<bool>("prog").map_or(false, |&f| f);
+            let rand = sub_matches.get_one::<bool>("rand").is_some_and(|&f| f);
+            let ans = sub_matches.get_one::<bool>("ans").is_some_and(|&f| f);
+            let prog = sub_matches.get_one::<bool>("prog").is_some_and(|&f| f);
 
             if prog {
                 if let Err(e) = show_program(name) {
@@ -884,14 +884,14 @@ fn main() {
         }
         Some(("stash", sub_matches)) => {
             let prog = sub_matches.get_one::<String>("PROG").expect("required");
-            let templ = sub_matches.get_one::<bool>("templ").map_or(false, |&f| f);
+            let templ = sub_matches.get_one::<bool>("templ").is_some_and(|&f| f);
 
             if let Err(e) = stash(prog, templ) {
                 report_owl_err!(&e);
             }
         }
         Some(("sync", sub_matches)) => {
-            let force = sub_matches.get_one::<bool>("force").map_or(false, |&f| f);
+            let force = sub_matches.get_one::<bool>("force").is_some_and(|&f| f);
 
             if let Err(e) = sync_git_remote(force) {
                 report_owl_err!(&e);
@@ -907,7 +907,7 @@ fn main() {
             }
         }
         Some(("update", sub_matches)) => {
-            let extensions = sub_matches.get_one::<bool>("ext").map_or(false, |&f| f);
+            let extensions = sub_matches.get_one::<bool>("ext").is_some_and(|&f| f);
 
             if let Err(e) = update(extensions) {
                 report_owl_err!(&e);

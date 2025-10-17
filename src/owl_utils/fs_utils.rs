@@ -125,7 +125,7 @@ pub fn commit_manifest(
 }
 
 pub fn compare_stamps(s1: &str, s2: &str) -> Result<bool, OwlError> {
-    for (s, t) in s1.split('.').into_iter().zip(s2.split('.').into_iter()) {
+    for (s, t) in s1.split('.').zip(s2.split('.')) {
         let s_num = s.parse::<usize>().map_err(|e| file_error!(e))?;
         let t_num = t.parse::<usize>().map_err(|e| file_error!(e))?;
 
@@ -153,6 +153,7 @@ pub fn copy_file(src: &str, dst: &str) -> Result<(), OwlError> {
 
     let mut dst_file = OpenOptions::new()
         .create(true)
+        .truncate(true)
         .write(true)
         .open(dst)
         .map_err(|e| file_error!(e))?;
@@ -165,6 +166,7 @@ pub fn copy_file(src: &str, dst: &str) -> Result<(), OwlError> {
 pub fn create_toml(filepath: &str, toml_template: &str) -> Result<(), OwlError> {
     let toml_file = OpenOptions::new()
         .create(true)
+        .truncate(true)
         .write(true)
         .open(filepath)
         .map_err(|e| file_error!(e))?;
@@ -176,7 +178,7 @@ pub fn create_toml(filepath: &str, toml_template: &str) -> Result<(), OwlError> 
         .map_err(|e| file_error!(e))?;
     writer.flush().map_err(|e| file_error!(e))?;
 
-    return Ok(());
+    Ok(())
 }
 
 pub fn create_toml_with_entry(
@@ -195,6 +197,7 @@ pub fn create_toml_with_entry(
 
     let toml_file = OpenOptions::new()
         .create(true)
+        .truncate(true)
         .write(true)
         .open(filepath)
         .map_err(|e| file_error!(e))?;
@@ -206,7 +209,7 @@ pub fn create_toml_with_entry(
         .map_err(|e| file_error!(e))?;
     writer.flush().map_err(|e| file_error!(e))?;
 
-    return Ok(());
+    Ok(())
 }
 
 pub fn download_archive(url: &str, tmp_archive: &str, out_dir: &str) -> Result<(), OwlError> {
