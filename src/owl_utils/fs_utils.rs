@@ -7,31 +7,17 @@ use toml_edit::{DocumentMut, Table, value};
 use zip::ZipArchive;
 
 use super::owl_error::{
-    OwlError, check_item, check_manifest, check_path, file_error, file_not_found, manifest_error,
-    net_error, no_entry_found,
+    OwlError, bad_chars, check_file_stem, check_item, check_manifest, check_parent, check_path,
+    file_error, file_not_found, manifest_error, net_error, no_entry_found,
 };
 
 pub fn as_ans_file(in_file: &str) -> Result<String, OwlError> {
     let in_path = Path::new(in_file);
 
-    let target_stem = in_path
-        .file_stem()
-        .and_then(OsStr::to_str)
-        .ok_or(file_error!(
-            "as_ans_file::in_file_stem",
-            format!("no parent of: '{}'", in_file)
-        ))?;
-
+    let target_stem = check_file_stem!(in_path)?.to_string();
     let ans_file = format!("{}.ans", target_stem);
 
-    let mut ans_path = in_path
-        .parent()
-        .ok_or(file_error!(
-            "as_ans_file::in_file_parent",
-            format!("no parent of: '{}'", in_file)
-        ))?
-        .to_path_buf();
-
+    let mut ans_path = check_parent!(in_path)?;
     ans_path.push(ans_file);
 
     if !ans_path.exists() {
@@ -42,7 +28,7 @@ pub fn as_ans_file(in_file: &str) -> Result<String, OwlError> {
     } else {
         Ok(ans_path
             .to_str()
-            .ok_or(file_error!("as_ans_file::exists", check_path!(ans_path)?))?
+            .ok_or(bad_chars!("ans filepath"))?
             .to_string())
     }
 }
@@ -54,11 +40,11 @@ pub fn cat_file(filepath: &str) -> Result<String, OwlError> {
         return Err(file_not_found!("cat_file::check_file", filepath));
     }
 
-    let mut file = File::open(path).map_err(|e| file_error!("cat_file::open_file", e))?;
+    let mut file = File::open(path).map_err(|_| file_error!("cat_file::open_file", filepath))?;
 
     let mut buffer = String::new();
     file.read_to_string(&mut buffer)
-        .map_err(|e| file_error!("cat_file::read_stdout", e))?;
+        .map_err(|_| bad_chars!(filepath))?;
 
     Ok(buffer)
 }
@@ -99,13 +85,7 @@ pub fn commit_manifest(
     local_doc["ext_uri"][ext_uri] = value(uri);
 
     if let Some(personal_table) = remote_doc["personal"].as_table() {
-        let mut quest_path = Path::new(manifest_path)
-            .parent()
-            .ok_or(file_error!(
-                "commit_manifest::manifest_parent",
-                format!("no parent of {}", manifest_path)
-            ))?
-            .to_path_buf();
+        let mut quest_path = check_parent!(Path::new(manifest_path))?;
 
         for (key, item) in personal_table.iter() {
             local_doc["personal"][key] = item.clone();
@@ -251,8 +231,7 @@ pub fn download_file(url: &str, out: &str) -> Result<(), OwlError> {
 }
 
 pub fn ensure_dir_from_home(dirs: &[&str]) -> Result<PathBuf, OwlError> {
-    let mut dir_path =
-        dirs::home_dir().ok_or(file_error!("ensure_dir_from_home::check_home_dir", "$HOME"))?;
+    let mut dir_path = dirs::home_dir().ok_or(file_error!("$HOME", "cannot find home dir"))?;
     for dir in dirs {
         dir_path.push(dir);
     }
@@ -349,7 +328,7 @@ pub fn get_toml_entry(filepath: &str, tables: &[&str], name: &str) -> Result<Str
         }
     }
 
-    Err(no_entry_found!("get_toml_entry::none", name))
+    Err(no_entry_found!(name))
 }
 
 pub fn get_toml_version_timestamp(filepath: &str) -> Result<(String, String), OwlError> {
@@ -437,13 +416,7 @@ pub fn update_extensions(manifest_path: &str, tmp_archive: &str) -> Result<(), O
     let mut local_doc = load_toml_doc(manifest_path, true)?;
 
     if let Some(ext_table) = local_doc["extensions"].as_table() {
-        let mut quest_path = Path::new(manifest_path)
-            .parent()
-            .ok_or(file_error!(
-                "update_extensions::manifest_parent",
-                format!("no parent of {}", manifest_path)
-            ))?
-            .to_path_buf();
+        let mut quest_path = check_parent!(Path::new(manifest_path))?;
 
         let mut tmp_doc = DocumentMut::new();
         tmp_doc["extensions"] = Table::new().into();

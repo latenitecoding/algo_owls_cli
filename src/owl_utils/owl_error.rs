@@ -8,8 +8,7 @@ pub enum OwlError {
     NetworkError(String, String),
     ProcessError(String, String),
     TestFailure(String),
-    TimeError(String, String),
-    UnrecognizedChars(String),
+    UnrecognizedChars(String, String),
     UnsupportedLanguage(String),
 }
 
@@ -20,50 +19,125 @@ impl fmt::Display for OwlError {
             OwlError::FileError(tag, e) => write!(f, "[{}] {}", tag, e),
             OwlError::ManifestError(tag, e) => write!(f, "[{}] {}", tag, e),
             OwlError::NetworkError(tag, e) => write!(f, "[{}] {}", tag, e),
-            OwlError::ProcessError(tag, e) => write!(f, "[{}] {}", tag, e),
+            OwlError::ProcessError(tag, e) => write!(f, "[{}; failed] {}", tag, e),
             OwlError::TestFailure(e) => write!(f, "{}", e),
-            OwlError::TimeError(tag, e) => write!(f, "[{}] {}", tag, e),
-            OwlError::UnrecognizedChars(e) => write!(f, "{}", e),
+            OwlError::UnrecognizedChars(tag, e) => write!(f, "[{}] {}", tag, e),
             OwlError::UnsupportedLanguage(e) => write!(f, "{}", e),
         }
     }
 }
 
 #[macro_export]
-macro_rules! check_manifest {
-    ($expr:expr, $name:expr) => {
-        $expr
-            .get($name)
-            .map(|entry| entry.as_value())
-            .flatten()
-            .map(|entry| entry.as_str())
-            .flatten()
-            .map(|entry| entry.to_string())
-            .ok_or(no_entry_found!("check_manifest", $name))
+macro_rules! bad_chars {
+    ($tag:expr) => {
+        OwlError::UnrecognizedChars(
+            $tag.to_string(),
+            "buffer has non UTF-8 chars or is empty".to_string(),
+        )
     };
 }
 
-pub(crate) use check_manifest;
+pub(crate) use bad_chars;
+
+#[macro_export]
+macro_rules! check_file_ext {
+    ($path:expr) => {
+        $path
+            .extension()
+            .and_then(OsStr::to_str)
+            .ok_or(match $path.to_str() {
+                Some(path_str) => {
+                    OwlError::FileError(path_str.to_string(), "file has no extension".to_string())
+                }
+                None => OwlError::FileError(
+                    "check_file_ext".to_string(),
+                    "path is empty or unrecognizable".to_string(),
+                ),
+            })
+    };
+}
+
+#[macro_export]
+macro_rules! check_file_stem {
+    ($path:expr) => {
+        $path
+            .file_stem()
+            .and_then(OsStr::to_str)
+            .ok_or(match $path.to_str() {
+                Some(path_str) => {
+                    OwlError::FileError(path_str.to_string(), "file has no stem".to_string())
+                }
+                None => OwlError::FileError(
+                    "check_file_stem".to_string(),
+                    "path is empty or unrecognizable".to_string(),
+                ),
+            })
+    };
+}
+
+pub(crate) use check_file_stem;
 
 #[macro_export]
 macro_rules! check_item {
-    ($expr:expr, $name:expr) => {
-        $expr
+    ($item:expr, $name:expr) => {
+        $item
             .as_value()
             .map(|entry| entry.as_str())
             .flatten()
             .map(|entry| entry.to_string())
-            .ok_or(no_entry_found!("check_item", $name))
+            .ok_or(OwlError::ManifestError(
+                $name.to_string(),
+                format!("'{}': No such entry in manifest", $name),
+            ))
     };
 }
 
 pub(crate) use check_item;
 
 #[macro_export]
+macro_rules! check_manifest {
+    ($doc:expr, $name:expr) => {
+        $doc.get($name)
+            .map(|entry| entry.as_value())
+            .flatten()
+            .map(|entry| entry.as_str())
+            .flatten()
+            .map(|entry| entry.to_string())
+            .ok_or(OwlError::ManifestError(
+                $name.to_string(),
+                format!("'{}': No such entry in manifest", $name),
+            ))
+    };
+}
+
+pub(crate) use check_manifest;
+
+#[macro_export]
+macro_rules! check_parent {
+    ($path:expr) => {
+        $path
+            .parent()
+            .ok_or(match $path.to_str() {
+                Some(path_str) => {
+                    OwlError::FileError(path_str.to_string(), "file has no parent".to_string())
+                }
+                None => OwlError::FileError(
+                    "check_parent".to_string(),
+                    "path is empty or unrecognizable".to_string(),
+                ),
+            })
+            .map(Path::to_path_buf)
+    };
+}
+
+pub(crate) use check_parent;
+
+#[macro_export]
 macro_rules! check_path {
-    ($expr:expr) => {
-        $expr.to_str().ok_or(OwlError::UnrecognizedChars(
-            $expr.to_string_lossy().into_owned(),
+    ($path:expr) => {
+        $path.to_str().ok_or(OwlError::FileError(
+            "check_path".to_string(),
+            "path is empty or unrecognizable".to_string(),
         ))
     };
 }
@@ -118,10 +192,10 @@ pub(crate) use net_error;
 
 #[macro_export]
 macro_rules! no_entry_found {
-    ($tag:expr, $expr:expr) => {
+    ($name:expr) => {
         OwlError::ManifestError(
-            $tag.to_string(),
-            format!("'{}': No such entry in manifest", $expr),
+            $name.to_string(),
+            format!("'{}': No such entry in manifest", $name),
         )
     };
 }
@@ -152,12 +226,3 @@ macro_rules! test_failure {
         OwlError::TestFailure($expr.to_string())
     };
 }
-
-#[macro_export]
-macro_rules! time_error {
-    ($tag:expr, $expr:expr) => {
-        OwlError::TimeError($tag.to_string(), $expr.to_string())
-    };
-}
-
-pub(crate) use time_error;

@@ -3,7 +3,7 @@ use std::path::Path;
 use std::process::Command;
 
 use super::cmd_utils;
-use super::owl_error::{OwlError, file_error, not_supported, process_error};
+use super::owl_error::{OwlError, bad_chars, check_file_stem, not_supported, process_error};
 
 pub trait ProgLang {
     fn build_cmd(&self, filename: &str) -> Result<Command, OwlError>;
@@ -18,20 +18,17 @@ pub trait ProgLang {
         let output = self
             .build_cmd(filename)?
             .output()
-            .map_err(|e| process_error!("build::spawn", e))?;
+            .expect("[build] failed to spawn");
 
         let stdout = String::from_utf8(output.stdout)
-            .map_err(|e| process_error!("build::stdout_to_string", e))?
+            .map_err(|_| bad_chars!("build::stdout"))?
             .to_string();
         let stderr = String::from_utf8(output.stderr)
-            .map_err(|e| process_error!("build::stderr_to_string", e))?
+            .map_err(|_| bad_chars!("build::stderr"))?
             .to_string();
 
         if output.status.success() {
-            let target_stem = Path::new(filename)
-                .file_stem()
-                .and_then(OsStr::to_str)
-                .ok_or(file_error!("buid::file_stem", filename))?;
+            let target_stem = check_file_stem!(Path::new(filename))?;
             let target = self.target_name(target_stem);
 
             let build_files = self.build_files(target_stem);
@@ -42,7 +39,7 @@ pub trait ProgLang {
                 build_files,
             })
         } else {
-            Err(process_error!("build::failed_status", stderr))
+            Err(process_error!("build", stderr))
         }
     }
 
@@ -54,17 +51,14 @@ pub trait ProgLang {
         let output = self
             .version_cmd()?
             .output()
-            .map_err(|e| process_error!("version::spawn", e))?;
+            .expect("[version] failed to spawn");
 
         if output.status.success() {
             Ok(String::from_utf8(output.stdout)
-                .map_err(|e| process_error!("version::stdout", e))?
+                .map_err(|_| bad_chars!("version::stdout"))?
                 .to_string())
         } else {
-            Err(process_error!(
-                "version::failed_status",
-                format!("Unable to determine version of '{}'", self.name())
-            ))
+            Err(process_error!("version", "unable to determine version"))
         }
     }
 
@@ -377,11 +371,7 @@ impl ProgLang for ComptimeLang {
         let mut cmd = Command::new(self.build_cmd_str);
         cmd.args(self.build_args);
 
-        let target_stem = Path::new(filename)
-            .file_stem()
-            .and_then(OsStr::to_str)
-            .ok_or(file_error!("comptime::build_cmd::file_stem", filename))?
-            .to_string();
+        let target_stem = check_file_stem!(Path::new(filename))?;
 
         if let Some((flag, pos)) = self.exe_flag {
             if pos == ArgsPosition::Post {
@@ -389,7 +379,7 @@ impl ProgLang for ComptimeLang {
             }
 
             if flag.contains('=') || flag.contains(':') {
-                let exe_arg = format!("{}{}", flag, &target_stem);
+                let exe_arg = format!("{}{}", flag, target_stem);
 
                 if exe_arg.contains(' ') {
                     let split = exe_arg.split(' ').collect::<Vec<&str>>();
@@ -398,7 +388,7 @@ impl ProgLang for ComptimeLang {
                     cmd.arg(exe_arg);
                 }
             } else {
-                cmd.args([flag, &target_stem]);
+                cmd.args([flag, target_stem]);
             }
 
             if pos == ArgsPosition::Pre {
@@ -472,8 +462,8 @@ impl ProgLang for RuntimeLang {
         run_cmd.arg(target);
 
         match stdin {
-            Some(input) => cmd_utils::run_cmd_with_stdin(run_cmd, input),
-            None => cmd_utils::run_cmd(run_cmd),
+            Some(input) => cmd_utils::run_cmd_with_stdin(self.cmd_str, run_cmd, input),
+            None => cmd_utils::run_cmd(self.cmd_str, run_cmd),
         }
     }
 
@@ -526,16 +516,13 @@ impl ProgLang for CustomLang {
         let mut cmd = Command::new(self.run_cmd_str);
         cmd.args(self.run_args);
 
-        let target_stem = Path::new(target)
-            .file_stem()
-            .and_then(OsStr::to_str)
-            .ok_or(file_error!("custom::run_it::file_stem", target))?;
+        let target_stem = check_file_stem!(Path::new(target))?;
 
         cmd.arg(target_stem);
 
         match stdin {
-            Some(input) => cmd_utils::run_cmd_with_stdin(cmd, input),
-            None => cmd_utils::run_cmd(cmd),
+            Some(input) => cmd_utils::run_cmd_with_stdin(self.run_cmd_str, cmd, input),
+            None => cmd_utils::run_cmd(self.run_cmd_str, cmd),
         }
     }
 
@@ -600,17 +587,14 @@ impl ProgLang for ErlLang {
         let mut cmd = Command::new(self.cmd_str);
         cmd.args(self.pre_run_args);
 
-        let target_stem = Path::new(target)
-            .file_stem()
-            .and_then(OsStr::to_str)
-            .ok_or(file_error!("erlang::run_it::file_stem", target))?;
+        let target_stem = check_file_stem!(Path::new(target))?;
 
         cmd.arg(target_stem);
         cmd.args(self.post_run_args);
 
         match stdin {
-            Some(input) => cmd_utils::run_cmd_with_stdin(cmd, input),
-            None => cmd_utils::run_cmd(cmd),
+            Some(input) => cmd_utils::run_cmd_with_stdin(self.cmd_str, cmd, input),
+            None => cmd_utils::run_cmd(self.cmd_str, cmd),
         }
     }
 
