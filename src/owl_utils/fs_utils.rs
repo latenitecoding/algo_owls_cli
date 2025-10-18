@@ -1,7 +1,7 @@
 use std::collections::VecDeque;
 use std::ffi::OsStr;
 use std::fs::{self, File, OpenOptions};
-use std::io::{BufRead, BufReader, BufWriter, Read, Write, copy};
+use std::io::{BufRead, BufReader, BufWriter, Cursor, Read, Write, copy};
 use std::path::{Path, PathBuf};
 use toml_edit::{DocumentMut, Table, value};
 use zip::ZipArchive;
@@ -319,6 +319,15 @@ pub fn find_by_stem_and_ext(
         })
 }
 
+pub fn get_toml_ai_sdk(filepath: &str) -> Result<(String, String), OwlError> {
+    let doc = get_toml_manifest(filepath)?;
+
+    let ai_sdk = check_manifest!(doc["manifest"], "ai_sdk")?;
+    let api_key = check_manifest!(doc["manifest"], "api_key")?;
+
+    Ok((ai_sdk, api_key))
+}
+
 pub fn get_toml_entry(filepath: &str, tables: &[&str], name: &str) -> Result<String, OwlError> {
     let doc = load_toml_doc(filepath, true)?;
 
@@ -331,7 +340,7 @@ pub fn get_toml_entry(filepath: &str, tables: &[&str], name: &str) -> Result<Str
     Err(no_entry_found!(name))
 }
 
-pub fn get_toml_version_timestamp(filepath: &str) -> Result<(String, String), OwlError> {
+pub fn get_toml_manifest(filepath: &str) -> Result<DocumentMut, OwlError> {
     let path = Path::new(filepath);
     let file =
         File::open(path).map_err(|e| file_error!("get_toml_version_timestamp::open_toml", e))?;
@@ -340,16 +349,20 @@ pub fn get_toml_version_timestamp(filepath: &str) -> Result<(String, String), Ow
     let mut lines = reader.lines();
 
     let mut toml_str = String::new();
-    for _ in 0..3 {
+    for _ in 0..5 {
         if let Some(Ok(line)) = lines.next() {
             toml_str.push_str(&line);
             toml_str.push('\n');
         }
     }
 
-    let doc = toml_str
+    toml_str
         .parse::<DocumentMut>()
-        .map_err(|e| file_error!("get_toml_version_timestamp::parse_doc", e))?;
+        .map_err(|e| file_error!("get_toml_version_timestamp::parse_doc", e))
+}
+
+pub fn get_toml_version_timestamp(filepath: &str) -> Result<(String, String), OwlError> {
+    let doc = get_toml_manifest(filepath)?;
 
     let version = check_manifest!(doc["manifest"], "version")?;
     let timestamp = check_manifest!(doc["manifest"], "timestamp")?;
@@ -397,6 +410,28 @@ fn load_toml_doc(uri: &str, is_local: bool) -> Result<DocumentMut, OwlError> {
     toml_str
         .parse::<DocumentMut>()
         .map_err(|e| file_error!("load_toml_doc::parse_toml", e))
+}
+
+pub fn record_chat(filepath: &str, contents: &str) -> Result<(), OwlError> {
+    let path = Path::new(filepath);
+
+    if path.exists() {
+        return Err(file_error!("record_chat::path_exists", filepath));
+    }
+
+    let mut chat_file = OpenOptions::new()
+        .create(true)
+        .truncate(true)
+        .write(true)
+        .open(path)
+        .map_err(|e| file_error!("record_chat::open_file", e))?;
+
+    let mut cursor = Cursor::new(contents.as_bytes());
+
+    copy(&mut cursor, &mut chat_file)
+        .map_err(|e| file_error!("record_chat::copy_response_to_file", e))?;
+
+    Ok(())
 }
 
 pub fn remove_path(file_or_dir: &str) -> Result<(), OwlError> {

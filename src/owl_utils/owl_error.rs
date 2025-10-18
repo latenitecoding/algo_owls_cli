@@ -7,9 +7,10 @@ pub enum OwlError {
     ManifestError(String, String),
     NetworkError(String, String),
     ProcessError(String, String),
+    ReviewError(String),
     TestFailure(String),
     UnrecognizedChars(String, String),
-    UnsupportedLanguage(String),
+    Unsupported(String),
 }
 
 impl fmt::Display for OwlError {
@@ -20,9 +21,10 @@ impl fmt::Display for OwlError {
             OwlError::ManifestError(tag, e) => write!(f, "[{}] {}", tag, e),
             OwlError::NetworkError(tag, e) => write!(f, "[{}] {}", tag, e),
             OwlError::ProcessError(tag, e) => write!(f, "[{}; failed] {}", tag, e),
+            OwlError::ReviewError(e) => write!(f, "{}", e),
             OwlError::TestFailure(e) => write!(f, "{}", e),
             OwlError::UnrecognizedChars(tag, e) => write!(f, "[{}] {}", tag, e),
-            OwlError::UnsupportedLanguage(e) => write!(f, "{}", e),
+            OwlError::Unsupported(e) => write!(f, "{}", e),
         }
     }
 }
@@ -173,6 +175,13 @@ macro_rules! file_not_found {
 pub(crate) use file_not_found;
 
 #[macro_export]
+macro_rules! llm_error {
+    ($name:expr, $expr:expr) => {
+        OwlError::ReviewError(format!("[{}; failed] {}", $name, $expr))
+    };
+}
+
+#[macro_export]
 macro_rules! manifest_error {
     ($tag:expr, $expr:expr) => {
         OwlError::ManifestError($tag.to_string(), $expr.to_string())
@@ -205,7 +214,7 @@ pub(crate) use no_entry_found;
 #[macro_export]
 macro_rules! not_supported {
     ($expr:expr) => {
-        OwlError::UnsupportedLanguage(format!("Language not supported: {}", $expr))
+        OwlError::Unsupported(format!("'{}': Not supported", $expr))
     };
 }
 

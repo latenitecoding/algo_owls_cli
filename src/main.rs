@@ -1,3 +1,5 @@
+use anthropic_sdk::{Anthropic, ContentBlock, MessageCreateBuilder};
+use chrono::{DateTime, Utc};
 use clap::{Command, arg};
 use std::ffi::OsStr;
 use std::fs;
@@ -7,10 +9,11 @@ use std::process;
 mod owl_utils;
 use owl_utils::{cmd_utils, fs_utils, owl_error::OwlError, prog_lang};
 
-const OWL_DIR: &str = ".owlgo";
+const CHAT_DIR: &str = ".chat";
 const MANIFEST: &str = ".manifest.toml";
 const MANIFEST_HEAD_URL: &str = "https://gist.githubusercontent.com/latenitecoding/84c043f4c9092998773640a2202f2d36/raw/owl_manifest_short";
 const MANIFEST_URL: &str = "https://gist.githubusercontent.com/latenitecoding/b6fdd8656c0b6a60795581f84d0f2fa4/raw/owlgo_manifest";
+const OWL_DIR: &str = ".owlgo";
 const TEMPLATE_STEM: &str = ".template";
 const TMP_ARCHIVE: &str = ".tmp.zip";
 const STASH_DIR: &str = ".stash";
@@ -20,6 +23,8 @@ const TOML_TEMPLATE: &str = r#"
 [manifest]
 version = "0.1.3"
 timestamp = "0.0.0"
+ai_sdk = "claude"
+api_key = ""
 
 [extensions]
 
@@ -111,6 +116,15 @@ fn cli() -> Command {
             Command::new("restore")
                 .about("restores the program to the version stashed away")
                 .arg(arg!(<PROG> "The program to restore"))
+                .arg_required_else_help(true),
+        )
+        .subcommand(
+            Command::new("review")
+                .about("submits the program to an LLM for a code review")
+                .arg(arg!(<PROG> "The program to review"))
+                .arg(arg!(<PROMPT> "The prompt to give"))
+                .arg(arg!(-f --file "The prompt is in a file"))
+                .arg(arg!(-R --forget "Forget chat history after each prompt"))
                 .arg_required_else_help(true),
         )
         .subcommand(
@@ -486,6 +500,94 @@ fn restore_program(prog: &str) -> Result<(), OwlError> {
     fs_utils::copy_file(check_path!(stash_path)?, prog)
 }
 
+async fn review_program(
+    prog: &str,
+    prompt: &str,
+    is_file: bool,
+    forget_chat: bool,
+) -> Result<(), OwlError> {
+    let mut manifest_path = fs_utils::ensure_dir_from_home(&[OWL_DIR])?;
+    manifest_path.push(MANIFEST);
+
+    if !manifest_path.exists() {
+        eprintln!("manifest doesn't exist...");
+        eprintln!("run 'owlgo update'");
+        return Err(file_not_found!(
+            "review_program::open_manifest",
+            check_path!(manifest_path)?
+        ));
+    }
+
+    let (ai_sdk, api_key) = fs_utils::get_toml_ai_sdk(check_path!(manifest_path)?)?;
+
+    if ai_sdk.is_empty() {
+        eprintln!("no LLM has been selected!");
+        return Err(no_entry_found!("ai_sdk"));
+    }
+
+    if api_key.is_empty() {
+        eprintln!("no API key has been provided!");
+        return Err(no_entry_found!("api_key"));
+    }
+
+    match ai_sdk.as_str() {
+        "claude" => println!("Sending code review to Claude..."),
+        _ => return Err(not_supported!(ai_sdk)),
+    };
+
+    let client = Anthropic::new(api_key).map_err(|e| llm_error!(ai_sdk, e))?;
+
+    let prog_str = fs_utils::cat_file(prog)?;
+
+    let prompt_str = if is_file {
+        fs_utils::cat_file(prompt)?
+    } else {
+        prompt.to_string()
+    };
+
+    let response = client
+        .messages()
+        .create(
+            MessageCreateBuilder::new("claude-sonnet-4-5", 1024)
+                .user(format!("Hello, Claude! I'm writing a program to solve a problem. That problem has this description:\n{}. Here is the program that I wrote:\n{}\nCould you please review this code and tell me what I can improve?", prompt_str, prog_str))
+                .build(),
+        )
+        .await
+        .map_err(|e| llm_error!(ai_sdk, e))?;
+
+    let mut buffer = String::new();
+    for content_block in response.content {
+        if let ContentBlock::Text { text } = content_block {
+            buffer.push_str("\nClaude: ");
+            buffer.push_str(&text);
+        }
+    }
+
+    let mut chat_path = fs_utils::ensure_dir_from_home(&[OWL_DIR, CHAT_DIR])?;
+
+    let now: DateTime<Utc> = Utc::now();
+    let timestamp = now.format("%Y-%m-%d-%H-%M-%S").to_string();
+
+    let chat_file_stem = format!("{}_{}.md", ai_sdk, timestamp);
+    chat_path.push(&chat_file_stem);
+
+    let chat_file_str = check_path!(chat_path)?;
+
+    let _ = fs_utils::record_chat(chat_file_str, &buffer)
+        .and_then(|_| {
+            cmd_utils::glow_file(chat_file_str).or_else(|_| {
+                fs_utils::cat_file(chat_file_str).map(|contents| println!("{}", contents))
+            })
+        })
+        .map_err(|_| println!("{}", buffer));
+
+    if forget_chat {
+        fs_utils::remove_path(chat_file_str)?;
+    }
+
+    Ok(())
+}
+
 fn run(prog: &str) -> Result<(), OwlError> {
     if !Path::new(prog).exists() {
         return Err(file_not_found!("run::prog_path", prog));
@@ -801,7 +903,8 @@ fn update(and_extensions: bool) -> Result<(), OwlError> {
     Ok(())
 }
 
-fn main() {
+#[tokio::main]
+async fn main() {
     let matches = cli().get_matches();
 
     match matches.subcommand() {
@@ -880,6 +983,16 @@ fn main() {
             let prog = sub_matches.get_one::<String>("PROG").expect("required");
 
             if let Err(e) = restore_program(prog) {
+                report_owl_err!(&e);
+            }
+        }
+        Some(("review", sub_matches)) => {
+            let prog = sub_matches.get_one::<String>("PROG").expect("required");
+            let prompt = sub_matches.get_one::<String>("PROMPT").expect("required");
+            let is_file = sub_matches.get_one::<bool>("file").is_some_and(|&f| f);
+            let forget = sub_matches.get_one::<bool>("forget").is_some_and(|&f| f);
+
+            if let Err(e) = review_program(prog, prompt, is_file, forget).await {
                 report_owl_err!(&e);
             }
         }
