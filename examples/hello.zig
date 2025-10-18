@@ -37,11 +37,13 @@ pub fn main() !void {
 
 fn lastInt(comptime T: type, r: *std.Io.Reader) !T {
     const token = try r.takeDelimiterExclusive('\n');
+    _ = try r.take(1);
     return try std.fmt.parseInt(T, token, 10);
 }
 
 fn nextInt(comptime T: type, r: *std.Io.Reader) !T {
     const token = try r.takeDelimiterExclusive(' ');
+    _ = try r.take(1);
     return try std.fmt.parseInt(T, token, 10);
 }
 

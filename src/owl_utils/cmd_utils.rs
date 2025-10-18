@@ -1,8 +1,9 @@
 use std::io::{BufReader, Read, Write};
+use std::path::Path;
 use std::process::{Child, Command, Stdio};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use super::owl_error::{OwlError, bad_chars, file_error, process_error};
+use super::owl_error::{OwlError, bad_chars, file_error, file_not_found, process_error};
 
 fn stderr_only(cmd_tag: &'static str, mut child: Child) -> Result<String, OwlError> {
     let stderr_pipe = child.stderr.take().expect("stderr handle");
@@ -50,11 +51,19 @@ fn stdout_else_stderr(cmd_tag: &'static str, mut child: Child) -> Result<String,
             .read_to_string(&mut buffer)
             .map_err(|_| bad_chars!(&format!("{}; stderr", cmd_tag)))?;
 
+        buffer.push_str("(run program manually for stack trace)");
+
         Err(process_error!(cmd_tag, buffer))
     }
 }
 
 pub fn bat_file(filepath: &str) -> Result<(), OwlError> {
+    let path = Path::new(filepath);
+
+    if !path.exists() {
+        return Err(file_not_found!("bat_file::check_file", filepath));
+    }
+
     let mut child = Command::new("bat")
         .arg(filepath)
         .spawn()
@@ -210,6 +219,30 @@ pub fn git_status(dir: &str) -> Result<String, OwlError> {
         .expect("[git status] failed to spawn");
 
     stdout_else_stderr("git status", child)
+}
+
+pub fn glow_file(filepath: &str) -> Result<(), OwlError> {
+    let path = Path::new(filepath);
+
+    if !path.exists() {
+        return Err(file_not_found!("glow_file::check_file", filepath));
+    }
+
+    let mut child = Command::new("glow")
+        .arg(filepath)
+        .spawn()
+        .expect("[glow] failed to spawn");
+
+    let status = child.wait().expect("[glow] not running");
+
+    if status.success() {
+        Ok(())
+    } else {
+        Err(process_error!(
+            "glow",
+            format!("could not glow '{}'", filepath)
+        ))
+    }
 }
 
 pub fn list_all(dir: &str) -> Result<(), OwlError> {

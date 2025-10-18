@@ -97,6 +97,7 @@ fn cli() -> Command {
                 .arg(arg!(-t --test <TEST> "The specific test to run by name"))
                 .arg(arg!(-c --case <CASE> "The specific test to run by case number"))
                 .arg(arg!(-r --rand "Test against a random test case"))
+                .arg(arg!(-n --hint "Prints the hint/feedback (if any)"))
                 .arg_required_else_help(true),
         )
         .subcommand(
@@ -360,6 +361,7 @@ fn quest(
     prog: &str,
     test_name: Option<&String>,
     case_id: usize,
+    use_hints: bool,
 ) -> Result<(), OwlError> {
     let mut quest_path = fs_utils::ensure_dir_from_home(&[OWL_DIR])?;
     quest_path.push(name);
@@ -404,11 +406,11 @@ fn quest(
             continue;
         }
 
-        if case_id > 0 && count != (case_id % total) {
+        if case_id > 0 && (count % total) != (case_id % total) {
             continue;
         }
 
-        match quest_it(&target, &test_case, count, total) {
+        match quest_it(&target, &test_case, count, total, use_hints) {
             Ok((true, elapsed)) => {
                 passed += 1;
                 total_duration += elapsed;
@@ -437,6 +439,7 @@ fn quest_it(
     test_case: &str,
     count: usize,
     total: usize,
+    use_hints: bool,
 ) -> Result<(bool, u128), OwlError> {
     let in_path = Path::new(&test_case);
     let in_stem = in_path
@@ -455,10 +458,22 @@ fn quest_it(
             Ok((true, elapsed))
         }
         Err(e) => {
+            if use_hints && let Ok(mut parent_dir) = check_parent!(in_path) {
+                let feedback_file = format!("{}.md", in_stem);
+                parent_dir.push(feedback_file);
+
+                let _ = check_path!(parent_dir).and_then(|parent_str| {
+                    cmd_utils::glow_file(parent_str).or_else(|_| {
+                        fs_utils::cat_file(parent_str).map(|contents| eprintln!("{}", contents))
+                    })
+                });
+            }
+
             eprintln!(
                 "({}/{}) {} \x1b[31m{}\x1b[0m 😭\n",
                 count, total, in_stem, e
             );
+
             Ok((false, 0))
         }
     }
@@ -581,7 +596,7 @@ fn show_test_case(
     let test_cases: Vec<String> = fs_utils::find_by_ext(quest_dir, "in")?;
 
     if case_id > 0 {
-        return show_it(&test_cases[(case_id - 1) & test_cases.len()], show_ans);
+        return show_it(&test_cases[(case_id - 1) % test_cases.len()], show_ans);
     }
 
     for test_case in test_cases {
@@ -843,12 +858,13 @@ fn main() {
                 .get_one::<String>("case")
                 .map_or(0, |s| s.parse().expect("case id should be a number"));
             let rand = sub_matches.get_one::<bool>("rand").is_some_and(|&f| f);
+            let use_hints = sub_matches.get_one::<bool>("hint").is_some_and(|&f| f);
 
             if rand {
                 case = rand::random::<u64>() as usize;
             }
 
-            if let Err(e) = quest(name, prog, test, case) {
+            if let Err(e) = quest(name, prog, test, case, use_hints) {
                 report_owl_err!(&e);
             }
         }
