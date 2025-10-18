@@ -3,7 +3,7 @@ use std::path::Path;
 use std::process::Command;
 
 use super::cmd_utils;
-use super::owl_error::{OwlError, file_error, not_supported, program_error};
+use super::owl_error::{OwlError, file_error, not_supported, process_error};
 
 pub trait ProgLang {
     fn build_cmd(&self, filename: &str) -> Result<Command, OwlError>;
@@ -18,20 +18,20 @@ pub trait ProgLang {
         let output = self
             .build_cmd(filename)?
             .output()
-            .map_err(|e| program_error!(e))?;
+            .map_err(|e| process_error!("build::spawn", e))?;
 
         let stdout = String::from_utf8(output.stdout)
-            .map_err(|e| file_error!(e))?
+            .map_err(|e| process_error!("build::stdout_to_string", e))?
             .to_string();
         let stderr = String::from_utf8(output.stderr)
-            .map_err(|e| file_error!(e))?
+            .map_err(|e| process_error!("build::stderr_to_string", e))?
             .to_string();
 
         if output.status.success() {
             let target_stem = Path::new(filename)
                 .file_stem()
                 .and_then(OsStr::to_str)
-                .ok_or(file_error!(filename))?;
+                .ok_or(file_error!("buid::file_stem", filename))?;
             let target = self.target_name(target_stem);
 
             let build_files = self.build_files(target_stem);
@@ -42,7 +42,7 @@ pub trait ProgLang {
                 build_files,
             })
         } else {
-            Err(program_error!(stderr))
+            Err(process_error!("build::failed_status", stderr))
         }
     }
 
@@ -54,17 +54,17 @@ pub trait ProgLang {
         let output = self
             .version_cmd()?
             .output()
-            .map_err(|e| program_error!(e))?;
+            .map_err(|e| process_error!("version::spawn", e))?;
 
         if output.status.success() {
             Ok(String::from_utf8(output.stdout)
-                .map_err(|e| file_error!(e))?
+                .map_err(|e| process_error!("version::stdout", e))?
                 .to_string())
         } else {
-            Err(program_error!(format!(
-                "Unable to determine version of '{}'",
-                self.name()
-            )))
+            Err(process_error!(
+                "version::failed_status",
+                format!("Unable to determine version of '{}'", self.name())
+            ))
         }
     }
 
@@ -380,7 +380,7 @@ impl ProgLang for ComptimeLang {
         let target_stem = Path::new(filename)
             .file_stem()
             .and_then(OsStr::to_str)
-            .ok_or(file_error!(filename))?
+            .ok_or(file_error!("comptime::build_cmd::file_stem", filename))?
             .to_string();
 
         if let Some((flag, pos)) = self.exe_flag {
@@ -452,11 +452,10 @@ pub struct RuntimeLang {
 
 impl ProgLang for RuntimeLang {
     fn build_cmd(&self, filename: &str) -> Result<Command, OwlError> {
-        Err(program_error!(format!(
-            "No build command ({}) for '{}'",
-            self.name(),
-            filename
-        )))
+        Err(process_error!(
+            "runtime::build",
+            format!("No build command ({}) for '{}'", self.name(), filename)
+        ))
     }
 
     fn build_files(&self, _: &str) -> Option<Vec<String>> {
@@ -530,7 +529,7 @@ impl ProgLang for CustomLang {
         let target_stem = Path::new(target)
             .file_stem()
             .and_then(OsStr::to_str)
-            .ok_or(file_error!(target))?;
+            .ok_or(file_error!("custom::run_it::file_stem", target))?;
 
         cmd.arg(target_stem);
 
@@ -604,7 +603,7 @@ impl ProgLang for ErlLang {
         let target_stem = Path::new(target)
             .file_stem()
             .and_then(OsStr::to_str)
-            .ok_or(file_error!(target))?;
+            .ok_or(file_error!("erlang::run_it::file_stem", target))?;
 
         cmd.arg(target_stem);
         cmd.args(self.post_run_args);

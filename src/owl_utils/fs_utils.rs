@@ -7,8 +7,8 @@ use toml_edit::{DocumentMut, Table, value};
 use zip::ZipArchive;
 
 use super::owl_error::{
-    OwlError, check_item, check_manifest, check_path, file_error, file_not_found, net_error,
-    no_entry_found,
+    OwlError, check_item, check_manifest, check_path, file_error, file_not_found, manifest_error,
+    net_error, no_entry_found,
 };
 
 pub fn as_ans_file(in_file: &str) -> Result<String, OwlError> {
@@ -17,23 +17,32 @@ pub fn as_ans_file(in_file: &str) -> Result<String, OwlError> {
     let target_stem = in_path
         .file_stem()
         .and_then(OsStr::to_str)
-        .ok_or(file_error!(format!("no parent of: '{}'", in_file)))?;
+        .ok_or(file_error!(
+            "as_ans_file::in_file_stem",
+            format!("no parent of: '{}'", in_file)
+        ))?;
 
     let ans_file = format!("{}.ans", target_stem);
 
     let mut ans_path = in_path
         .parent()
-        .ok_or(file_error!(format!("no parent of: '{}'", in_file)))?
+        .ok_or(file_error!(
+            "as_ans_file::in_file_parent",
+            format!("no parent of: '{}'", in_file)
+        ))?
         .to_path_buf();
 
     ans_path.push(ans_file);
 
     if !ans_path.exists() {
-        Err(file_not_found!(check_path!(ans_path)?))
+        Err(file_not_found!(
+            "as_ans_file::ans_path",
+            check_path!(ans_path)?
+        ))
     } else {
         Ok(ans_path
             .to_str()
-            .ok_or(file_error!(check_path!(ans_path)?))?
+            .ok_or(file_error!("as_ans_file::exists", check_path!(ans_path)?))?
             .to_string())
     }
 }
@@ -42,14 +51,14 @@ pub fn cat_file(filepath: &str) -> Result<String, OwlError> {
     let path = Path::new(filepath);
 
     if !path.exists() {
-        return Err(file_not_found!(filepath));
+        return Err(file_not_found!("cat_file::check_file", filepath));
     }
 
-    let mut file = File::open(path).map_err(|e| file_error!(e))?;
+    let mut file = File::open(path).map_err(|e| file_error!("cat_file::open_file", e))?;
 
     let mut buffer = String::new();
     file.read_to_string(&mut buffer)
-        .map_err(|e| file_error!(e))?;
+        .map_err(|e| file_error!("cat_file::read_stdout", e))?;
 
     Ok(buffer)
 }
@@ -92,7 +101,10 @@ pub fn commit_manifest(
     if let Some(personal_table) = remote_doc["personal"].as_table() {
         let mut quest_path = Path::new(manifest_path)
             .parent()
-            .ok_or(file_error!(format!("no parent of {}", manifest_path)))?
+            .ok_or(file_error!(
+                "commit_manifest::manifest_parent",
+                format!("no parent of {}", manifest_path)
+            ))?
             .to_path_buf();
 
         for (key, item) in personal_table.iter() {
@@ -112,22 +124,28 @@ pub fn commit_manifest(
     let toml_file = OpenOptions::new()
         .write(true)
         .open(manifest_path)
-        .map_err(|e| file_error!(e))?;
+        .map_err(|e| file_error!("commit_manifest::open_toml", e))?;
 
     let mut writer = BufWriter::new(toml_file);
 
     writer
         .write_all(local_doc.to_string().as_bytes())
-        .map_err(|e| file_error!(e))?;
-    writer.flush().map_err(|e| file_error!(e))?;
+        .map_err(|e| file_error!("commit_manifest::write_toml", e))?;
+    writer
+        .flush()
+        .map_err(|e| file_error!("commit_manifest::flush", e))?;
 
     Ok(())
 }
 
 pub fn compare_stamps(s1: &str, s2: &str) -> Result<bool, OwlError> {
     for (s, t) in s1.split('.').zip(s2.split('.')) {
-        let s_num = s.parse::<usize>().map_err(|e| file_error!(e))?;
-        let t_num = t.parse::<usize>().map_err(|e| file_error!(e))?;
+        let s_num = s
+            .parse::<usize>()
+            .map_err(|e| manifest_error!("compare_stamps::left", e))?;
+        let t_num = t
+            .parse::<usize>()
+            .map_err(|e| manifest_error!("compare_stamps::right", e))?;
 
         if s_num < t_num {
             return Ok(true);
@@ -139,13 +157,13 @@ pub fn compare_stamps(s1: &str, s2: &str) -> Result<bool, OwlError> {
 
 pub fn copy_file(src: &str, dst: &str) -> Result<(), OwlError> {
     if !Path::new(src).exists() {
-        return Err(file_not_found!(src));
+        return Err(file_not_found!("copy_file::src_file", src));
     }
 
     let mut src_file = OpenOptions::new()
         .read(true)
         .open(src)
-        .map_err(|e| file_error!(e))?;
+        .map_err(|e| file_error!("copy_file::open_src", e))?;
 
     if Path::new(dst).exists() {
         remove_path(dst)?;
@@ -156,9 +174,9 @@ pub fn copy_file(src: &str, dst: &str) -> Result<(), OwlError> {
         .truncate(true)
         .write(true)
         .open(dst)
-        .map_err(|e| file_error!(e))?;
+        .map_err(|e| file_error!("copy_file::open_dst", e))?;
 
-    copy(&mut src_file, &mut dst_file).map_err(|e| file_error!(e))?;
+    copy(&mut src_file, &mut dst_file).map_err(|e| file_error!("copy_file::copy_src_to_dst", e))?;
 
     Ok(())
 }
@@ -169,14 +187,16 @@ pub fn create_toml(filepath: &str, toml_template: &str) -> Result<(), OwlError> 
         .truncate(true)
         .write(true)
         .open(filepath)
-        .map_err(|e| file_error!(e))?;
+        .map_err(|e| file_error!("create_toml::open_toml", e))?;
 
     let mut writer = BufWriter::new(toml_file);
 
     writer
         .write_all(toml_template.trim().as_bytes())
-        .map_err(|e| file_error!(e))?;
-    writer.flush().map_err(|e| file_error!(e))?;
+        .map_err(|e| file_error!("create_toml::write_toml", e))?;
+    writer
+        .flush()
+        .map_err(|e| file_error!("create_toml::flush", e))?;
 
     Ok(())
 }
@@ -191,7 +211,7 @@ pub fn create_toml_with_entry(
     let mut doc = toml_template
         .trim()
         .parse::<DocumentMut>()
-        .map_err(|e| file_error!(e))?;
+        .map_err(|e| file_error!("create_toml_with_entry::parse_toml", e))?;
 
     doc[table][name] = value(item);
 
@@ -200,14 +220,16 @@ pub fn create_toml_with_entry(
         .truncate(true)
         .write(true)
         .open(filepath)
-        .map_err(|e| file_error!(e))?;
+        .map_err(|e| file_error!("create_toml_with_entry::open_toml", e))?;
 
     let mut writer = BufWriter::new(toml_file);
 
     writer
         .write_all(doc.to_string().as_bytes())
-        .map_err(|e| file_error!(e))?;
-    writer.flush().map_err(|e| file_error!(e))?;
+        .map_err(|e| file_error!("create_toml_with_entry::write_toml", e))?;
+    writer
+        .flush()
+        .map_err(|e| file_error!("create_toml_with_entry::flush", e))?;
 
     Ok(())
 }
@@ -219,31 +241,38 @@ pub fn download_archive(url: &str, tmp_archive: &str, out_dir: &str) -> Result<(
 }
 
 pub fn download_file(url: &str, out: &str) -> Result<(), OwlError> {
-    let mut resp = reqwest::blocking::get(url).map_err(|e| net_error!(e))?;
-    let mut file = File::create(out).map_err(|e| file_error!(e))?;
-    copy(&mut resp, &mut file).map_err(|e| file_error!(e))?;
+    let mut resp =
+        reqwest::blocking::get(url).map_err(|e| net_error!("download_file::get_request", e))?;
+    let mut file = File::create(out).map_err(|e| file_error!("download_file::open_file", e))?;
+    copy(&mut resp, &mut file)
+        .map_err(|e| file_error!("download_file::copy_response_to_file", e))?;
 
     Ok(())
 }
 
 pub fn ensure_dir_from_home(dirs: &[&str]) -> Result<PathBuf, OwlError> {
-    let mut dir_path = dirs::home_dir().ok_or(file_error!("$HOME"))?;
+    let mut dir_path =
+        dirs::home_dir().ok_or(file_error!("ensure_dir_from_home::check_home_dir", "$HOME"))?;
     for dir in dirs {
         dir_path.push(dir);
     }
 
     if !dir_path.exists() {
-        fs::create_dir_all(&dir_path).map_err(|e| file_error!(e))?;
+        fs::create_dir_all(&dir_path)
+            .map_err(|e| file_error!("ensure_dir_from_home::create_dirs", e))?;
     }
 
     Ok(dir_path)
 }
 
 pub fn extract_archive(filename: &str, dir: &str) -> Result<(), OwlError> {
-    let zip_file = File::open(filename).map_err(|e| file_error!(e))?;
-    let mut archive = ZipArchive::new(zip_file).map_err(|e| file_error!(e))?;
-    fs::create_dir_all(dir).map_err(|e| file_error!(e))?;
-    archive.extract(dir).map_err(|e| file_error!(e))?;
+    let zip_file = File::open(filename).map_err(|e| file_error!("extract_archive::open_zip", e))?;
+    let mut archive =
+        ZipArchive::new(zip_file).map_err(|e| file_error!("extract_archive::parse_zip", e))?;
+    fs::create_dir_all(dir).map_err(|e| file_error!("extract_archive::create_dir", e))?;
+    archive
+        .extract(dir)
+        .map_err(|e| file_error!("extract_archive::extract_zip", e))?;
 
     Ok(())
 }
@@ -251,33 +280,34 @@ pub fn extract_archive(filename: &str, dir: &str) -> Result<(), OwlError> {
 pub fn extract_toml_version(toml_template: &str) -> Result<String, OwlError> {
     let doc = toml_template
         .parse::<DocumentMut>()
-        .map_err(|e| file_error!(e))?;
+        .map_err(|e| file_error!("extract_toml_version::parse_toml", e))?;
 
     check_manifest!(doc["manifest"], "version")
 }
 
 pub fn find_by_ext(root_dir: String, target_ext: &str) -> Result<Vec<String>, OwlError> {
-    let mut test_cases: Vec<String> = Vec::new();
-
-    let mut queue: VecDeque<String> = VecDeque::new();
-    queue.push_back(root_dir);
-
-    while let Some(dir) = queue.pop_front() {
-        for entry in fs::read_dir(dir).map_err(|e| file_error!(e))? {
-            let path = entry.map_err(|e| file_error!(e))?.path();
-
-            if path.is_dir() {
-                queue.push_back(check_path!(path)?.to_string());
-            } else if path.is_file()
-                && let Some(ext) = path.extension().and_then(OsStr::to_str)
-                && ext == target_ext
-            {
-                test_cases.push(check_path!(path)?.to_string());
+    list_dir(root_dir)
+        .map(|files| {
+            files
+                .into_iter()
+                .filter(|file| {
+                    if let Some(ext) = Path::new(file).extension().and_then(OsStr::to_str)
+                        && ext == target_ext
+                    {
+                        true
+                    } else {
+                        false
+                    }
+                })
+                .collect::<Vec<String>>()
+        })
+        .map_or_else(Err, |files| {
+            if files.is_empty() {
+                Err(file_not_found!("find_by_ext::no_files", target_ext))
+            } else {
+                Ok(files)
             }
-        }
-    }
-
-    Ok(test_cases)
+        })
 }
 
 pub fn find_by_stem_and_ext(
@@ -285,27 +315,29 @@ pub fn find_by_stem_and_ext(
     target_stem: &str,
     target_ext: &str,
 ) -> Result<String, OwlError> {
-    let mut queue: VecDeque<String> = VecDeque::new();
-    queue.push_back(root_dir);
+    list_dir(root_dir)
+        .map(|files| {
+            files.into_iter().find(|file| {
+                let path = Path::new(file);
 
-    while let Some(dir) = queue.pop_front() {
-        for entry in fs::read_dir(dir).map_err(|e| file_error!(e))? {
-            let path = entry.map_err(|e| file_error!(e))?.path();
-
-            if path.is_dir() {
-                queue.push_back(check_path!(path)?.to_string());
-            } else if path.is_file()
-                && let Some(stem) = path.file_stem().and_then(OsStr::to_str)
-                && stem == target_stem
-                && let Some(ext) = path.extension().and_then(OsStr::to_str)
-                && ext == target_ext
-            {
-                return Ok(path.to_str().ok_or(file_error!(target_stem))?.to_string());
-            }
-        }
-    }
-
-    Err(file_not_found!(target_stem))
+                if let Some(stem) = path.file_stem().and_then(OsStr::to_str)
+                    && stem == target_stem
+                    && let Some(ext) = path.extension().and_then(OsStr::to_str)
+                    && ext == target_ext
+                {
+                    true
+                } else {
+                    false
+                }
+            })
+        })
+        .map_or_else(Err, |file| match file {
+            Some(target_file) => Ok(target_file),
+            None => Err(file_not_found!(
+                "find_by_stem_and_ext::no_files",
+                format!("{}.{}", target_stem, target_ext)
+            )),
+        })
 }
 
 pub fn get_toml_entry(filepath: &str, tables: &[&str], name: &str) -> Result<String, OwlError> {
@@ -317,12 +349,13 @@ pub fn get_toml_entry(filepath: &str, tables: &[&str], name: &str) -> Result<Str
         }
     }
 
-    Err(no_entry_found!(name))
+    Err(no_entry_found!("get_toml_entry::none", name))
 }
 
 pub fn get_toml_version_timestamp(filepath: &str) -> Result<(String, String), OwlError> {
     let path = Path::new(filepath);
-    let file = File::open(path).map_err(|e| file_error!(e))?;
+    let file =
+        File::open(path).map_err(|e| file_error!("get_toml_version_timestamp::open_toml", e))?;
 
     let reader = BufReader::new(file);
     let mut lines = reader.lines();
@@ -337,7 +370,7 @@ pub fn get_toml_version_timestamp(filepath: &str) -> Result<(String, String), Ow
 
     let doc = toml_str
         .parse::<DocumentMut>()
-        .map_err(|e| file_error!(e))?;
+        .map_err(|e| file_error!("get_toml_version_timestamp::parse_doc", e))?;
 
     let version = check_manifest!(doc["manifest"], "version")?;
     let timestamp = check_manifest!(doc["manifest"], "timestamp")?;
@@ -345,52 +378,56 @@ pub fn get_toml_version_timestamp(filepath: &str) -> Result<(String, String), Ow
     Ok((version, timestamp))
 }
 
-pub fn list_dir(root_dir: String) -> Result<String, OwlError> {
+pub fn list_dir(root_dir: String) -> Result<Vec<String>, OwlError> {
+    let mut files: Vec<String> = Vec::new();
+
     let mut queue: VecDeque<String> = VecDeque::new();
     queue.push_back(root_dir);
 
-    let mut buffer = String::new();
-
     while let Some(dir) = queue.pop_front() {
-        for entry in fs::read_dir(dir).map_err(|e| file_error!(e))? {
-            let path = entry.map_err(|e| file_error!(e))?.path();
+        for entry in fs::read_dir(dir).map_err(|e| file_error!("list_dir::read_sub_dir", e))? {
+            let path = entry
+                .map_err(|e| file_error!("list_dir::sub_dir_path", e))?
+                .path();
 
             if path.is_dir() {
                 queue.push_back(check_path!(path)?.to_string());
             } else if path.is_file() {
-                buffer.push_str(check_path!(path)?);
-                buffer.push('\n');
+                files.push(check_path!(path)?.to_string());
             }
         }
     }
 
-    Ok(buffer)
+    Ok(files)
 }
 
 fn load_toml_doc(uri: &str, is_local: bool) -> Result<DocumentMut, OwlError> {
     let toml_str = if is_local {
-        fs::read_to_string(uri).map_err(|e| file_error!(e))?
+        fs::read_to_string(uri).map_err(|e| file_error!("load_toml_doc::read_local_toml", e))?
     } else {
-        let mut resp = reqwest::blocking::get(uri).map_err(|e| net_error!(e))?;
+        let mut resp =
+            reqwest::blocking::get(uri).map_err(|e| net_error!("load_toml_doc::get_request", e))?;
 
         let mut remote_toml_str = String::new();
         resp.read_to_string(&mut remote_toml_str)
-            .map_err(|e| file_error!(e))?;
+            .map_err(|e| file_error!("load_toml_doc::read_remote_toml", e))?;
 
         remote_toml_str
     };
 
-    toml_str.parse::<DocumentMut>().map_err(|e| file_error!(e))
+    toml_str
+        .parse::<DocumentMut>()
+        .map_err(|e| file_error!("load_toml_doc::parse_toml", e))
 }
 
 pub fn remove_path(file_or_dir: &str) -> Result<(), OwlError> {
     let path = Path::new(file_or_dir);
-    let metadata = fs::metadata(path).map_err(|e| file_error!(e))?;
+    let metadata = fs::metadata(path).map_err(|e| file_error!("remove_path::file_metadata", e))?;
 
     if metadata.is_dir() {
-        fs::remove_dir_all(path).map_err(|e| file_error!(e))?;
+        fs::remove_dir_all(path).map_err(|e| file_error!("remove_path::remove_dir", e))?;
     } else if metadata.is_file() {
-        fs::remove_file(path).map_err(|e| file_error!(e))?;
+        fs::remove_file(path).map_err(|e| file_error!("remove_path::remove_file", e))?;
     }
 
     Ok(())
@@ -402,7 +439,10 @@ pub fn update_extensions(manifest_path: &str, tmp_archive: &str) -> Result<(), O
     if let Some(ext_table) = local_doc["extensions"].as_table() {
         let mut quest_path = Path::new(manifest_path)
             .parent()
-            .ok_or(file_error!(format!("no parent of {}", manifest_path)))?
+            .ok_or(file_error!(
+                "update_extensions::manifest_parent",
+                format!("no parent of {}", manifest_path)
+            ))?
             .to_path_buf();
 
         let mut tmp_doc = DocumentMut::new();
@@ -418,7 +458,10 @@ pub fn update_extensions(manifest_path: &str, tmp_archive: &str) -> Result<(), O
             let is_remote = local_doc["ext_uri"].get(&ext_url).is_some();
 
             if !is_local && !is_remote {
-                return Err(file_not_found!(ext_name));
+                return Err(file_not_found!(
+                    "update_extensions::no_path_or_url",
+                    ext_name
+                ));
             }
 
             let uri = if is_local {
@@ -483,14 +526,16 @@ pub fn update_extensions(manifest_path: &str, tmp_archive: &str) -> Result<(), O
     let toml_file = OpenOptions::new()
         .write(true)
         .open(manifest_path)
-        .map_err(|e| file_error!(e))?;
+        .map_err(|e| file_error!("update_extensions::open_manifest", e))?;
 
     let mut writer = BufWriter::new(toml_file);
 
     writer
         .write_all(local_doc.to_string().as_bytes())
-        .map_err(|e| file_error!(e))?;
-    writer.flush().map_err(|e| file_error!(e))?;
+        .map_err(|e| file_error!("update_extensions::write", e))?;
+    writer
+        .flush()
+        .map_err(|e| file_error!("update_extensions::flush", e))?;
 
     Ok(())
 }
@@ -505,14 +550,16 @@ pub fn update_toml(filepath: &str, url: &str) -> Result<(), OwlError> {
     let manifest_file = OpenOptions::new()
         .write(true)
         .open(filepath)
-        .map_err(|e| file_error!(e))?;
+        .map_err(|e| file_error!("update_toml::open_manifest", e))?;
 
     let mut writer = BufWriter::new(manifest_file);
 
     writer
         .write_all(local_doc.to_string().as_bytes())
-        .map_err(|e| file_error!(e))?;
-    writer.flush().map_err(|e| file_error!(e))?;
+        .map_err(|e| file_error!("update_toml::write_toml", e))?;
+    writer
+        .flush()
+        .map_err(|e| file_error!("write_toml::flush", e))?;
 
     Ok(())
 }
@@ -523,10 +570,11 @@ pub fn update_toml_entry(
     name: &str,
     item: &str,
 ) -> Result<(), OwlError> {
-    let toml_str = fs::read_to_string(filepath).map_err(|e| file_error!(e))?;
+    let toml_str = fs::read_to_string(filepath)
+        .map_err(|e| file_error!("update_toml_entry::read_manifest", e))?;
     let mut doc = toml_str
         .parse::<DocumentMut>()
-        .map_err(|e| file_error!(e))?;
+        .map_err(|e| file_error!("update_toml_entry::parse_toml", e))?;
 
     if doc[table].get(name).is_none() && table == "personal" {
         // the entry is not in the manifest so it can be appended
@@ -534,7 +582,7 @@ pub fn update_toml_entry(
         let manifest_file = OpenOptions::new()
             .append(true)
             .open(filepath)
-            .map_err(|e| file_error!(e))?;
+            .map_err(|e| file_error!("update_toml_entry::open_manifest::append", e))?;
 
         let mut writer = BufWriter::new(manifest_file);
 
@@ -542,8 +590,10 @@ pub fn update_toml_entry(
 
         writer
             .write_all(entry.as_bytes())
-            .map_err(|e| file_error!(e))?;
-        writer.flush().map_err(|e| file_error!(e))?;
+            .map_err(|e| file_error!("update_toml_entry::append", e))?;
+        writer
+            .flush()
+            .map_err(|e| file_error!("update_toml_entry::append_flush", e))?;
 
         return Ok(());
     }
@@ -551,7 +601,7 @@ pub fn update_toml_entry(
     let manifest_file = OpenOptions::new()
         .write(true)
         .open(filepath)
-        .map_err(|e| file_error!(e))?;
+        .map_err(|e| file_error!("update_toml_entry::open_manifest::write", e))?;
 
     let mut writer = BufWriter::new(manifest_file);
 
@@ -559,8 +609,10 @@ pub fn update_toml_entry(
 
     writer
         .write_all(doc.to_string().as_bytes())
-        .map_err(|e| file_error!(e))?;
-    writer.flush().map_err(|e| file_error!(e))?;
+        .map_err(|e| file_error!("update_toml_entry::write_toml", e))?;
+    writer
+        .flush()
+        .map_err(|e| file_error!("update_toml_entry::flush", e))?;
 
     Ok(())
 }

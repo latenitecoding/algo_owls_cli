@@ -213,7 +213,7 @@ fn build_program(prog: &str) -> Result<Option<prog_lang::BuildLog>, OwlError> {
     match prog_lang::check_prog_lang(prog) {
         Some(lang) => {
             if !lang.command_exists() {
-                return Err(command_not_found!(lang.name()));
+                return Err(command_not_found!("build_program::check_lang", lang.name()));
             }
 
             if lang.should_build() {
@@ -250,12 +250,16 @@ fn cleanup_program(
 fn clear_stash(only_stash: bool, all_files: bool) -> Result<(), OwlError> {
     let owl_path = fs_utils::ensure_dir_from_home(&[OWL_DIR])?;
 
-    for entry in fs::read_dir(check_path!(owl_path)?).map_err(|e| file_error!(e))? {
-        let path = entry.map_err(|e| file_error!(e))?.path();
+    for entry in fs::read_dir(check_path!(owl_path)?)
+        .map_err(|e| file_error!("clear_stash::read_owl_dir", e))?
+    {
+        let path = entry
+            .map_err(|e| file_error!("clear_stash::check_sub_dir", e))?
+            .path();
         let stem = path
             .file_stem()
             .and_then(OsStr::to_str)
-            .ok_or(file_error!(check_path!(path)?))?;
+            .ok_or(file_error!("clear_stash::sub_dir_stem", check_path!(path)?))?;
 
         if path.is_dir()
             && (all_files
@@ -275,7 +279,7 @@ fn fetch(name: &str, dir: &str) -> Result<(), OwlError> {
 
     if !manifest_path.exists() {
         let path_str = check_path!(manifest_path)?;
-        return Err(file_not_found!(path_str));
+        return Err(file_not_found!("fetch::manifest_path", path_str));
     }
 
     let url = fs_utils::get_toml_entry(check_path!(manifest_path)?, &["personal", "quests"], name)?;
@@ -292,7 +296,10 @@ fn fetch_by_name(name: &str) -> Result<(), OwlError> {
 
 fn init_program(prog: &str) -> Result<(), OwlError> {
     if Path::new(prog).exists() {
-        return Err(file_error!(format!("file already exists: '{}'", prog)));
+        return Err(file_error!(
+            "init_program::prog_exists",
+            format!("file already exists: '{}'", prog)
+        ));
     }
 
     let mut stash_path = fs_utils::ensure_dir_from_home(&[OWL_DIR, STASH_DIR])?;
@@ -300,7 +307,7 @@ fn init_program(prog: &str) -> Result<(), OwlError> {
     let ext = Path::new(prog)
         .extension()
         .and_then(OsStr::to_str)
-        .ok_or(file_error!(prog))?;
+        .ok_or(file_error!("init_program::prog_ext", prog))?;
 
     let stash_file = format!("{}.{}", TEMPLATE_STEM, ext);
 
@@ -314,7 +321,7 @@ fn list_stash() -> Result<(), OwlError> {
 
     cmd_utils::list_all(check_path!(stash_path)?).or_else(|_| {
         fs_utils::list_dir(check_path!(stash_path)?.to_string())
-            .map(|contents| println!("{}", contents))
+            .map(|files| println!("{}", files.join("\n")))
     })
 }
 
@@ -323,7 +330,10 @@ fn push_git_remote(force: bool) -> Result<(), OwlError> {
     stash_path.push(".git");
 
     if !stash_path.exists() {
-        return Err(file_not_found!(check_path!(stash_path)?));
+        return Err(file_not_found!(
+            "push_git_remote::stash_git_dir",
+            check_path!(stash_path)?
+        ));
     }
 
     stash_path.pop();
@@ -363,7 +373,7 @@ fn quest(
     let prog_path = Path::new(prog);
 
     if !prog_path.exists() {
-        return Err(file_not_found!(prog));
+        return Err(file_not_found!("quest::prog_path", prog));
     }
 
     let (target, build_files) = match build_program(prog)? {
@@ -386,7 +396,7 @@ fn quest(
         let in_stem = in_path
             .file_stem()
             .and_then(OsStr::to_str)
-            .ok_or(file_error!(test_case))?;
+            .ok_or(file_error!("quest::in_file_stem", test_case))?;
 
         if let Some(name) = test_name
             && in_stem != name
@@ -432,7 +442,7 @@ fn quest_it(
     let in_stem = in_path
         .file_stem()
         .and_then(OsStr::to_str)
-        .ok_or(file_error!(test_case))?;
+        .ok_or(file_error!("quest_it::in_file_stem", test_case))?;
 
     let ans_file = fs_utils::as_ans_file(test_case)?;
 
@@ -463,7 +473,7 @@ fn restore_program(prog: &str) -> Result<(), OwlError> {
 
 fn run(prog: &str) -> Result<(), OwlError> {
     if !Path::new(prog).exists() {
-        return Err(file_not_found!(prog));
+        return Err(file_not_found!("run::prog_path", prog));
     }
 
     match prog_lang::check_prog_lang(prog) {
@@ -492,7 +502,10 @@ fn set_git_remote(remote: &str, force: bool) -> Result<(), OwlError> {
     stash_path.push(".git");
 
     if stash_path.exists() && !force {
-        return Err(file_error!(".git directory already exists"));
+        return Err(file_error!(
+            "set_git_remote::stash_git_dir",
+            ".git directory already exists"
+        ));
     }
 
     if stash_path.exists() && force {
@@ -522,9 +535,9 @@ fn show_it(target_file: &str, show_ans: bool) -> Result<(), OwlError> {
     let contents = if show_ans {
         let ans_file = fs_utils::as_ans_file(target_file)?;
 
-        fs::read_to_string(ans_file).map_err(|e| file_error!(e))?
+        fs::read_to_string(ans_file).map_err(|e| file_error!("show_it:read_ans_file", e))?
     } else {
-        fs::read_to_string(target_file).map_err(|e| file_error!(e))?
+        fs::read_to_string(target_file).map_err(|e| file_error!("show_it::read_target_file", e))?
     };
 
     println!("{}", contents);
@@ -537,7 +550,7 @@ fn show_program(prog: &str) -> Result<(), OwlError> {
     stash_path.push(prog);
 
     if !stash_path.exists() {
-        return Err(file_not_found!(prog));
+        return Err(file_not_found!("show_program::prog_path", prog));
     }
 
     cmd_utils::bat_file(check_path!(stash_path)?).or_else(|_| {
@@ -585,7 +598,7 @@ fn show_version(lang_ext: Option<&String>) -> Result<(), OwlError> {
 
             match lang.version() {
                 Ok(stdout) => println!("{}", stdout),
-                Err(_) => return Err(command_not_found!(ext)),
+                Err(_) => return Err(command_not_found!("show_version::check_lang", ext)),
             }
         }
         None => {
@@ -623,7 +636,7 @@ fn stash(prog: &str, as_templ: bool) -> Result<(), OwlError> {
     let ext = Path::new(prog)
         .extension()
         .and_then(OsStr::to_str)
-        .ok_or(file_error!(prog))?;
+        .ok_or(file_error!("stash::prog_ext", prog))?;
 
     let stash_file = format!("{}.{}", TEMPLATE_STEM, ext);
 
@@ -637,7 +650,10 @@ fn sync_git_remote(force: bool) -> Result<(), OwlError> {
     stash_path.push(".git");
 
     if !stash_path.exists() {
-        return Err(file_not_found!(check_path!(stash_path)?));
+        return Err(file_not_found!(
+            "sync_git_remote::stash_git_dir",
+            check_path!(stash_path)?
+        ));
     }
 
     stash_path.pop();
@@ -696,22 +712,22 @@ fn test_it(target: &str, in_file: &str, ans_file: &str) -> Result<u128, OwlError
     let ans_path = Path::new(ans_file);
 
     if !prog_path.exists() {
-        return Err(file_not_found!(target));
+        return Err(file_not_found!("test_it::target_prog", target));
     }
     if !in_path.exists() {
-        return Err(file_not_found!(in_file));
+        return Err(file_not_found!("test_it::in_file", in_file));
     }
     if !ans_path.exists() {
-        return Err(file_not_found!(ans_file));
+        return Err(file_not_found!("test_it::ans_file", ans_file));
     }
 
-    let stdin = fs::read_to_string(in_path).map_err(|e| file_error!(e))?;
-    let ans = fs::read_to_string(ans_path).map_err(|e| file_error!(e))?;
+    let stdin = fs::read_to_string(in_path).map_err(|e| file_error!("test_it::read_in_file", e))?;
+    let ans = fs::read_to_string(ans_path).map_err(|e| file_error!("test_it::read_ans_file", e))?;
 
     match prog_lang::check_prog_lang(target) {
         Some(lang) => {
             if !lang.command_exists() {
-                return Err(command_not_found!(lang.name()));
+                return Err(command_not_found!("test_it::check_lang", lang.name()));
             }
 
             let run_result = lang.run_with_stdin(target, &stdin);
