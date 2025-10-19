@@ -526,8 +526,10 @@ fn quest_it(
                 parent_dir.push(feedback_file);
 
                 let _ = check_path!(parent_dir).and_then(|parent_str| {
-                    cmd_utils::glow_file(parent_str).or_else(|_| {
-                        fs_utils::cat_file(parent_str).map(|contents| eprintln!("{}", contents))
+                    cmd_utils::bat_file(parent_str).or_else(|_| {
+                        cmd_utils::glow_file(parent_str).or_else(|_| {
+                            fs_utils::cat_file(parent_str).map(|contents| eprintln!("{}", contents))
+                        })
                     })
                 });
             }
@@ -716,9 +718,19 @@ fn show_file(filepath: &str, is_prompt: bool, is_manifest: bool) -> Result<(), O
         return Err(file_not_found!("show_file::check_file", filepath));
     }
 
-    cmd_utils::bat_file(check_path!(stash_path)?).or_else(|_| {
-        fs_utils::cat_file(check_path!(stash_path)?).map(|contents| println!("{}", contents))
-    })
+    let stash_str = check_path!(stash_path)?;
+
+    if is_prompt || is_manifest {
+        cmd_utils::bat_file(stash_str).or_else(|_| {
+            cmd_utils::glow_file(stash_str).or_else(|_| {
+                fs_utils::cat_file(stash_str).map(|contents| eprintln!("{}", contents))
+            })
+        })
+    } else {
+        cmd_utils::bat_file(check_path!(stash_path)?).or_else(|_| {
+            fs_utils::cat_file(check_path!(stash_path)?).map(|contents| println!("{}", contents))
+        })
+    }
 }
 
 fn show_it(target_file: &str, show_ans: bool) -> Result<(), OwlError> {
