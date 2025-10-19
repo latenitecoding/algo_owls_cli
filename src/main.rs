@@ -67,7 +67,7 @@ fn cli() -> Command {
                 .about("adds new personal quest(s) to manifest")
                 .arg(arg!(<NAME> "The name of the quest/manifest"))
                 .arg(arg!(<URI> "The URL/PATH to fetch from"))
-                .arg(arg!(-f --fetch "Fetches test cases"))
+                .arg(arg!(-F --fetch "Fetches test cases"))
                 .arg(arg!(-m --manifest "The URL is a manifest to be committed"))
                 .arg(arg!(-l --local "The URI is a local path"))
                 .arg_required_else_help(true),
@@ -153,9 +153,10 @@ fn cli() -> Command {
         )
         .subcommand(
             Command::new("stash")
-                .about("stashes the program away for later")
-                .arg(arg!(<PROG> "The program to stash"))
-                .arg(arg!(-t --templ "Stashes the program away as a template"))
+                .about("stashes the program/prompt away for later")
+                .arg(arg!(<PROG> "The program/prompt to stash"))
+                .arg(arg!(-T --templ "Stashes the program away as a template"))
+                .arg(arg!(-P --prompt "Stashes the file away as a prompt"))
                 .arg_required_else_help(true),
         )
         .subcommand(
@@ -788,21 +789,21 @@ fn show_version(lang_ext: Option<&String>) -> Result<(), OwlError> {
     Ok(())
 }
 
-fn stash(prog: &str, as_templ: bool) -> Result<(), OwlError> {
-    let mut stash_path = fs_utils::ensure_dir_from_home(&[OWL_DIR, STASH_DIR])?;
+fn stash(prog: &str, as_templ: bool, as_prompt: bool) -> Result<(), OwlError> {
+    let mut stash_path = if as_prompt {
+        fs_utils::ensure_dir_from_home(&[OWL_DIR, STASH_DIR, PROMPT_DIR])?
+    } else {
+        fs_utils::ensure_dir_from_home(&[OWL_DIR, STASH_DIR])?
+    };
 
-    if !as_templ {
+    if as_prompt || !as_templ {
         stash_path.push(prog);
         return fs_utils::copy_file(prog, check_path!(stash_path)?);
     }
 
-    let ext = Path::new(prog)
-        .extension()
-        .and_then(OsStr::to_str)
-        .ok_or(file_error!("stash::prog_ext", prog))?;
+    let ext = check_file_ext!(Path::new(prog))?;
 
     let stash_file = format!("{}.{}", TEMPLATE_STEM, ext);
-
     stash_path.push(stash_file);
 
     fs_utils::copy_file(prog, check_path!(stash_path)?)
@@ -1081,8 +1082,9 @@ async fn main() {
         Some(("stash", sub_matches)) => {
             let prog = sub_matches.get_one::<String>("PROG").expect("required");
             let templ = sub_matches.get_one::<bool>("templ").is_some_and(|&f| f);
+            let prompt = sub_matches.get_one::<bool>("prompt").is_some_and(|&f| f);
 
-            if let Err(e) = stash(prog, templ) {
+            if let Err(e) = stash(prog, templ, prompt) {
                 report_owl_err!(&e);
             }
         }
