@@ -181,6 +181,8 @@ macro_rules! llm_error {
     };
 }
 
+pub(crate) use llm_error;
+
 #[macro_export]
 macro_rules! manifest_error {
     ($tag:expr, $expr:expr) => {

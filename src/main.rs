@@ -1,5 +1,4 @@
-use anthropic_sdk::{Anthropic, ContentBlock, MessageCreateBuilder};
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, Local};
 use clap::{Command, arg};
 use std::ffi::OsStr;
 use std::fs;
@@ -7,7 +6,7 @@ use std::path::Path;
 use std::process;
 
 mod owl_utils;
-use owl_utils::{cmd_utils, fs_utils, owl_error::OwlError, prog_lang};
+use owl_utils::{cmd_utils, fs_utils, llm_utils, owl_error::OwlError, prog_lang};
 
 const CHAT_DIR: &str = ".chat";
 const GIT_DIR: &str = ".git";
@@ -16,6 +15,7 @@ const MANIFEST_HEAD_URL: &str = "https://gist.githubusercontent.com/latenitecodi
 const MANIFEST_URL: &str = "https://gist.githubusercontent.com/latenitecoding/b6fdd8656c0b6a60795581f84d0f2fa4/raw/owlgo_manifest";
 const OWL_DIR: &str = ".owlgo";
 const PROMPT_DIR: &str = ".prompt";
+const PROMPT_FILE: &str = ".prompt.md";
 const TEMPLATE_STEM: &str = ".template";
 const TMP_ARCHIVE: &str = ".tmp.zip";
 const STASH_DIR: &str = ".stash";
@@ -80,7 +80,7 @@ fn cli() -> Command {
                 .arg(arg!(-P --prompt "Removes all stashed prompts"))
                 .arg(arg!(-c --chat "Removes AI chat history"))
                 .arg(arg!(-m --manifest "Removes the manifest"))
-                .arg(arg!(-k --keep-test "Tests are not cleared"))
+                .arg(arg!(-k --keep "Tests are not cleared"))
                 .arg(arg!(--all "Removes everything not excluded by other flags")),
         )
         .subcommand(
@@ -129,9 +129,16 @@ fn cli() -> Command {
             Command::new("review")
                 .about("submits the program to an LLM for a code review")
                 .arg(arg!(<PROG> "The program to review"))
-                .arg(arg!(<PROMPT> "The prompt to give"))
-                .arg(arg!(-f --file "The prompt is in a file"))
+                .arg(arg!([PROMPT] "The prompt or description to give"))
+                .arg(arg!(-s --stash "The prompt/desc is from stash"))
+                .arg(arg!(-q --quest "The prompt/desc is related to a specific set of test cases"))
+                .arg(arg!(-f --file "The prompt/desc is in a file"))
                 .arg(arg!(-R --forget "Forget chat history after each prompt"))
+                .arg(arg!(-d --def "Use the default prompt"))
+                .arg(arg!(-D --debug "Prompt for debugging help"))
+                .arg(arg!(-x --explore "Prompt for alternative implementation"))
+                .arg(arg!(-o --opt "Prompt for optimization help"))
+                .arg(arg!(-t --test "Prompt for help identifying tests and edge cases"))
                 .arg_required_else_help(true),
         )
         .subcommand(
@@ -143,7 +150,7 @@ fn cli() -> Command {
         .subcommand(
             Command::new("show")
                 .about("prints the input(s) or answer(s) to the test cases")
-                .arg(arg!(<NAME> "The name of the quest/solution/program/prompt"))
+                .arg(arg!([NAME] "The name of the quest/solution/program/prompt"))
                 .arg(arg!(-t --test <TEST> "The specific test to print by name"))
                 .arg(arg!(-C --case <CASE> "The specific test to print by case number"))
                 .arg(arg!(-r --rand "Print a random test case"))
@@ -553,9 +560,12 @@ fn restore_program(prog: &str) -> Result<(), OwlError> {
 
 async fn review_program(
     prog: &str,
-    prompt: &str,
+    prompt: Option<String>,
+    in_stash: bool,
+    in_quest: bool,
     is_file: bool,
     forget_chat: bool,
+    mode: llm_utils::PromptMode,
 ) -> Result<(), OwlError> {
     let mut manifest_path = fs_utils::ensure_dir_from_home(&[OWL_DIR])?;
     manifest_path.push(MANIFEST);
@@ -569,54 +579,37 @@ async fn review_program(
         ));
     }
 
-    let (ai_sdk, api_key) = fs_utils::get_toml_ai_sdk(check_path!(manifest_path)?)?;
-
-    if ai_sdk.is_empty() {
-        eprintln!("no LLM has been selected!");
-        return Err(no_entry_found!("ai_sdk"));
-    }
-
-    if api_key.is_empty() {
-        eprintln!("no API key has been provided!");
-        return Err(no_entry_found!("api_key"));
-    }
-
-    match ai_sdk.as_str() {
-        "claude" => println!("Sending code review to Claude..."),
-        _ => return Err(not_supported!(ai_sdk)),
-    };
-
-    let client = Anthropic::new(api_key).map_err(|e| llm_error!(ai_sdk, e))?;
-
     let prog_str = fs_utils::cat_file(prog)?;
 
-    let prompt_str = if is_file {
-        fs_utils::cat_file(prompt)?
-    } else {
-        prompt.to_string()
+    let prompt_str = match prompt {
+        Some(prompt_entry) => {
+            if is_file {
+                Some(fs_utils::cat_file(&prompt_entry)?)
+            } else if in_stash {
+                let mut stash_path =
+                    fs_utils::ensure_dir_from_home(&[OWL_DIR, STASH_DIR, PROMPT_DIR])?;
+                stash_path.push(prompt_entry);
+
+                Some(fs_utils::cat_file(check_path!(stash_path)?)?)
+            } else if in_quest {
+                let mut stash_path = fs_utils::ensure_dir_from_home(&[OWL_DIR, STASH_DIR])?;
+                stash_path.push(prompt_entry);
+                stash_path.push(PROMPT_FILE);
+
+                Some(fs_utils::cat_file(check_path!(stash_path)?)?)
+            } else {
+                Some(prompt_entry)
+            }
+        }
+        None => None,
     };
 
-    let response = client
-        .messages()
-        .create(
-            MessageCreateBuilder::new("claude-sonnet-4-5", 1024)
-                .user(format!("Hello, Claude! I'm writing a program to solve a problem. That problem has this description:\n{}. Here is the program that I wrote:\n{}\nCould you please review this code and tell me what I can improve?", prompt_str, prog_str))
-                .build(),
-        )
-        .await
-        .map_err(|e| llm_error!(ai_sdk, e))?;
-
-    let mut buffer = String::new();
-    for content_block in response.content {
-        if let ContentBlock::Text { text } = content_block {
-            buffer.push_str("\nClaude: ");
-            buffer.push_str(&text);
-        }
-    }
+    let (ai_sdk, response) =
+        llm_utils::llm_review(check_path!(manifest_path)?, &prog_str, mode, prompt_str).await?;
 
     let mut chat_path = fs_utils::ensure_dir_from_home(&[OWL_DIR, CHAT_DIR])?;
 
-    let now: DateTime<Utc> = Utc::now();
+    let now: DateTime<Local> = Local::now();
     let timestamp = now.format("%Y-%m-%d-%H-%M-%S").to_string();
 
     let chat_file_stem = format!("{}_{}.md", ai_sdk, timestamp);
@@ -624,13 +617,13 @@ async fn review_program(
 
     let chat_file_str = check_path!(chat_path)?;
 
-    let _ = fs_utils::record_chat(chat_file_str, &buffer)
+    let _ = fs_utils::record_chat(chat_file_str, &response)
         .and_then(|_| {
             cmd_utils::glow_file(chat_file_str).or_else(|_| {
                 fs_utils::cat_file(chat_file_str).map(|contents| println!("{}", contents))
             })
         })
-        .map_err(|_| println!("{}", buffer));
+        .map_err(|_| println!("{}", response));
 
     if forget_chat {
         fs_utils::remove_path(chat_file_str)?;
@@ -699,7 +692,11 @@ fn set_git_remote(remote: &str, force: bool) -> Result<(), OwlError> {
     Ok(())
 }
 
-fn show_file(filepath: &str, is_prompt: bool, is_manifest: bool) -> Result<(), OwlError> {
+fn show_file(
+    filepath: Option<&String>,
+    is_prompt: bool,
+    is_manifest: bool,
+) -> Result<(), OwlError> {
     let mut stash_path = if is_manifest {
         fs_utils::ensure_dir_from_home(&[OWL_DIR])?
     } else if is_prompt {
@@ -711,11 +708,15 @@ fn show_file(filepath: &str, is_prompt: bool, is_manifest: bool) -> Result<(), O
     if is_manifest {
         stash_path.push(MANIFEST);
     } else {
-        stash_path.push(filepath);
+        stash_path.push(filepath.unwrap());
     }
 
     if !stash_path.exists() {
-        return Err(file_not_found!("show_file::check_file", filepath));
+        if is_manifest {
+            return Err(file_not_found!("show_file::check_file", MANIFEST));
+        } else {
+            return Err(file_not_found!("show_file::check_file", filepath.unwrap()));
+        }
     }
 
     let stash_str = check_path!(stash_path)?;
@@ -997,7 +998,7 @@ async fn main() {
             let prompt = sub_matches.get_one::<bool>("prompt").is_some_and(|&f| f);
             let chat = sub_matches.get_one::<bool>("chat").is_some_and(|&f| f);
             let manif = sub_matches.get_one::<bool>("manifest").is_some_and(|&f| f);
-            let keep_test = sub_matches.get_one::<bool>("keep-test").is_some_and(|&f| f);
+            let keep_test = sub_matches.get_one::<bool>("keep").is_some_and(|&f| f);
             let all = sub_matches.get_one::<bool>("all").is_some_and(|&f| f);
 
             if let Err(e) = clear_stash(stash, program, prompt, chat, manif, keep_test, all) {
@@ -1065,11 +1066,35 @@ async fn main() {
         }
         Some(("review", sub_matches)) => {
             let prog = sub_matches.get_one::<String>("PROG").expect("required");
-            let prompt = sub_matches.get_one::<String>("PROMPT").expect("required");
+            let prompt = sub_matches
+                .get_one::<String>("PROMPT")
+                .map(String::to_owned);
+            let stash = sub_matches.get_one::<bool>("file").is_some_and(|&f| f);
+            let quest = sub_matches.get_one::<bool>("file").is_some_and(|&f| f);
             let is_file = sub_matches.get_one::<bool>("file").is_some_and(|&f| f);
             let forget = sub_matches.get_one::<bool>("forget").is_some_and(|&f| f);
+            let def = sub_matches.get_one::<bool>("def").is_some_and(|&f| f);
+            let debug = sub_matches.get_one::<bool>("debug").is_some_and(|&f| f);
+            let explore = sub_matches.get_one::<bool>("explore").is_some_and(|&f| f);
+            let opt = sub_matches.get_one::<bool>("opt").is_some_and(|&f| f);
+            let test = sub_matches.get_one::<bool>("test").is_some_and(|&f| f);
 
-            if let Err(e) = review_program(prog, prompt, is_file, forget).await {
+            let mode = if debug {
+                llm_utils::PromptMode::Debug
+            } else if explore {
+                llm_utils::PromptMode::Explore
+            } else if opt {
+                llm_utils::PromptMode::Optimize
+            } else if test {
+                llm_utils::PromptMode::Test
+            } else if prompt.is_some() && !def {
+                llm_utils::PromptMode::Custom
+            } else {
+                llm_utils::PromptMode::Default
+            };
+
+            if let Err(e) = review_program(prog, prompt, stash, quest, is_file, forget, mode).await
+            {
                 report_owl_err!(&e);
             }
         }
@@ -1081,6 +1106,7 @@ async fn main() {
             }
         }
         Some(("show", sub_matches)) => {
+            let name = sub_matches.get_one::<String>("NAME");
             let test = sub_matches.get_one::<String>("test");
             let mut case = sub_matches
                 .get_one::<String>("case")
@@ -1091,13 +1117,9 @@ async fn main() {
             let prompt = sub_matches.get_one::<bool>("prompt").is_some_and(|&f| f);
             let manif = sub_matches.get_one::<bool>("manifest").is_some_and(|&f| f);
 
-            let name = if manif {
-                ""
-            } else {
-                sub_matches
-                    .get_one::<String>("NAME")
-                    .expect("<NAME> required unless showing manifest")
-            };
+            if manif && name.is_none() {
+                report_owl_err!("<NAME> required unless showing manifest");
+            }
 
             if program || prompt || manif {
                 if let Err(e) = show_file(name, prompt, manif) {
@@ -1108,7 +1130,7 @@ async fn main() {
                     case = rand::random::<u64>() as usize;
                 }
 
-                if let Err(e) = show_test_case(name, test, case, ans) {
+                if let Err(e) = show_test_case(name.unwrap(), test, case, ans) {
                     report_owl_err!(&e);
                 }
             }
