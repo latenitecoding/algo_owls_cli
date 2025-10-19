@@ -10,10 +10,12 @@ mod owl_utils;
 use owl_utils::{cmd_utils, fs_utils, owl_error::OwlError, prog_lang};
 
 const CHAT_DIR: &str = ".chat";
+const GIT_DIR: &str = ".git";
 const MANIFEST: &str = ".manifest.toml";
 const MANIFEST_HEAD_URL: &str = "https://gist.githubusercontent.com/latenitecoding/84c043f4c9092998773640a2202f2d36/raw/owl_manifest_short";
 const MANIFEST_URL: &str = "https://gist.githubusercontent.com/latenitecoding/b6fdd8656c0b6a60795581f84d0f2fa4/raw/owlgo_manifest";
 const OWL_DIR: &str = ".owlgo";
+const PROMPT_DIR: &str = ".prompt";
 const TEMPLATE_STEM: &str = ".template";
 const TMP_ARCHIVE: &str = ".tmp.zip";
 const STASH_DIR: &str = ".stash";
@@ -73,8 +75,13 @@ fn cli() -> Command {
         .subcommand(
             Command::new("clear")
                 .about("removes all stashed test cases (and solutions)")
-                .arg(arg!(--stash "Removes all stashed programs"))
-                .arg(arg!(--all "Removes all test cases and stashed programs")),
+                .arg(arg!(-s --stash "Removes all stashed programs/prompts (and the git dir)"))
+                .arg(arg!(-p --program "Removes all stashed programs"))
+                .arg(arg!(-P --prompt "Removes all stashed prompts"))
+                .arg(arg!(-c --chat "Removes AI chat history"))
+                .arg(arg!(-m --manifest "Removes the manifest"))
+                .arg(arg!(-k --keep-test "Tests are not cleared"))
+                .arg(arg!(--all "Removes everything not excluded by other flags")),
         )
         .subcommand(
             Command::new("fetch")
@@ -100,7 +107,7 @@ fn cli() -> Command {
                 .arg(arg!(<NAME> "The name of the quest"))
                 .arg(arg!(<PROG> "The program to test"))
                 .arg(arg!(-t --test <TEST> "The specific test to run by name"))
-                .arg(arg!(-c --case <CASE> "The specific test to run by case number"))
+                .arg(arg!(-C --case <CASE> "The specific test to run by case number"))
                 .arg(arg!(-r --rand "Test against a random test case"))
                 .arg(arg!(-n --hint "Prints the hint/feedback (if any)"))
                 .arg_required_else_help(true),
@@ -172,7 +179,7 @@ fn cli() -> Command {
         .subcommand(
             Command::new("version")
                 .about("outputs the current version")
-                .arg(arg!(-l --lang <EXT> "Outputs the system version of the language")),
+                .arg(arg!(-L --lang <EXT> "Outputs the system version of the language")),
         )
 }
 
@@ -262,7 +269,15 @@ fn cleanup_program(
     Ok(())
 }
 
-fn clear_stash(only_stash: bool, all_files: bool) -> Result<(), OwlError> {
+fn clear_stash(
+    and_stash: bool,
+    and_program: bool,
+    and_prompt: bool,
+    and_chat: bool,
+    and_manif: bool,
+    keep_test: bool,
+    all_files: bool,
+) -> Result<(), OwlError> {
     let owl_path = fs_utils::ensure_dir_from_home(&[OWL_DIR])?;
 
     for entry in fs::read_dir(check_path!(owl_path)?)
@@ -271,17 +286,48 @@ fn clear_stash(only_stash: bool, all_files: bool) -> Result<(), OwlError> {
         let path = entry
             .map_err(|e| file_error!("clear_stash::check_sub_dir", e))?
             .path();
-        let stem = path
-            .file_stem()
-            .and_then(OsStr::to_str)
-            .ok_or(file_error!("clear_stash::sub_dir_stem", check_path!(path)?))?;
+        let stem = check_file_stem!(path)?;
+
+        if path.is_file() && (all_files || (stem == MANIFEST && and_manif)) {
+            fs_utils::remove_path(check_path!(path)?)?;
+        }
 
         if path.is_dir()
-            && (all_files
-                || (stem == STASH_DIR && only_stash)
-                || (stem != STASH_DIR && !only_stash))
+            && (all_files || (stem == STASH_DIR && and_stash) || (stem == CHAT_DIR && and_chat))
         {
-            fs_utils::remove_path(check_path!(path)?)?
+            fs_utils::remove_path(check_path!(path)?)?;
+        }
+
+        if path.is_dir() && !all_files && stem != STASH_DIR && stem != CHAT_DIR && !keep_test {
+            fs_utils::remove_path(check_path!(path)?)?;
+        }
+
+        if path.is_dir()
+            && !all_files
+            && stem == STASH_DIR
+            && !and_stash
+            && (and_program || and_prompt)
+        {
+            for s_entry in fs::read_dir(check_path!(path)?)
+                .map_err(|e| file_error!("clear_stash::read_stash_dir", e))?
+            {
+                let s_path = s_entry
+                    .map_err(|e| file_error!("clear_stash::check_stash_dir", e))?
+                    .path();
+                let s_stem = check_file_stem!(s_path)?;
+
+                if s_path.is_file() && and_program {
+                    fs_utils::remove_path(check_path!(s_path)?)?;
+                }
+
+                if s_path.is_dir() && s_stem == PROMPT_DIR && and_prompt {
+                    fs_utils::remove_path(check_path!(s_path)?)?;
+                }
+
+                if s_path.is_dir() && s_stem != GIT_DIR && s_stem != PROMPT_DIR && and_program {
+                    fs_utils::remove_path(check_path!(s_path)?)?;
+                }
+            }
         }
     }
 
@@ -921,9 +967,14 @@ async fn main() {
         }
         Some(("clear", sub_matches)) => {
             let stash = sub_matches.get_one::<bool>("stash").is_some_and(|&f| f);
+            let program = sub_matches.get_one::<bool>("program").is_some_and(|&f| f);
+            let prompt = sub_matches.get_one::<bool>("prompt").is_some_and(|&f| f);
+            let chat = sub_matches.get_one::<bool>("chat").is_some_and(|&f| f);
+            let manif = sub_matches.get_one::<bool>("manifest").is_some_and(|&f| f);
+            let keep_test = sub_matches.get_one::<bool>("keep-test").is_some_and(|&f| f);
             let all = sub_matches.get_one::<bool>("all").is_some_and(|&f| f);
 
-            if let Err(e) = clear_stash(stash, all) {
+            if let Err(e) = clear_stash(stash, program, prompt, chat, manif, keep_test, all) {
                 report_owl_err!(&e);
             }
         }

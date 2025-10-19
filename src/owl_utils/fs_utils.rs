@@ -436,6 +436,11 @@ pub fn record_chat(filepath: &str, contents: &str) -> Result<(), OwlError> {
 
 pub fn remove_path(file_or_dir: &str) -> Result<(), OwlError> {
     let path = Path::new(file_or_dir);
+
+    if !path.exists() {
+        return Ok(());
+    }
+
     let metadata = fs::metadata(path).map_err(|e| file_error!("remove_path::file_metadata", e))?;
 
     if metadata.is_dir() {
