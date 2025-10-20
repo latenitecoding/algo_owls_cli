@@ -1,13 +1,13 @@
+use crate::{common::OwlError, owl_utils::toml_utils};
 use anthropic_sdk::{Anthropic, ContentBlock, MessageCreateBuilder};
-
-use super::fs_utils;
-use super::owl_error::{OwlError, llm_error};
+use std::path::Path;
 
 #[derive(Debug, PartialEq)]
 pub enum PromptMode {
     Custom,
     Debug,
     Default,
+    Explain,
     Explore,
     Optimize,
     Test,
@@ -40,6 +40,17 @@ Consider:
 Suggest improvements and explain your reasoning for each suggestion.
 "#;
 
+const EXPLAIN_PROMPT: &str = r#"
+This is the program that I have implemented so far.
+[paste]
+I do not understand this problem that I have been trying to solve. Could you please explain the problem?
+Consider:
+1. Important concepts and constraints
+2. Potential edge cases
+3. Notable data structures and algorithms
+Please do not solve the problem for me or provide me with code.
+"#;
+
 const EXPLORE_PROMPT: &str = r#"
 Please review the following code:
 [paste]
@@ -68,30 +79,44 @@ All inputs will be valid. Please explain your reasoning for each suggestion.
 "#;
 
 pub async fn llm_review(
-    manifest_path: &str,
+    manifest_path: &Path,
     prog_str: &str,
     mode: PromptMode,
     prompt_str: Option<String>,
 ) -> Result<(String, String), OwlError> {
-    let (ai_sdk, api_key) = fs_utils::get_toml_ai_sdk(manifest_path)?;
+    let (ai_sdk, api_key) = toml_utils::get_manifest_ai_sdk(manifest_path)?;
 
     if ai_sdk.is_empty() {
-        return Err(llm_error!("ai_sdk", "no LLM has been selected!"));
+        return Err(OwlError::LlmError(
+            "no LLM has been selected".into(),
+            "".into(),
+        ));
     }
 
     if api_key.is_empty() {
-        return Err(llm_error!("api_key", "no API key has been provided!"));
+        return Err(OwlError::LlmError(
+            "no API key has been provided".into(),
+            "".into(),
+        ));
     }
 
     match ai_sdk.as_str() {
         "claude" => println!("Sending code review to {}...", ai_sdk),
-        _ => return Err(llm_error!(ai_sdk, "chosen LLM is not supported")),
+        _ => {
+            return Err(OwlError::Unsupported(format!(
+                "'{}': not supported",
+                ai_sdk
+            )));
+        }
     };
 
-    let client = Anthropic::new(api_key).map_err(|e| llm_error!(ai_sdk, e))?;
+    let client = Anthropic::new(api_key).map_err(|e| {
+        OwlError::LlmError(format!("could not connect to '{}'", ai_sdk), e.to_string())
+    })?;
 
     let suggested_prompt = match mode {
         PromptMode::Debug => DEBUG_PROMPT.replace(PLACEHOLDER, prog_str),
+        PromptMode::Explain => EXPLAIN_PROMPT.replace(PLACEHOLDER, prog_str),
         PromptMode::Explore => EXPLORE_PROMPT.replace(PLACEHOLDER, prog_str),
         PromptMode::Optimize => OPT_PROMPT.replace(PLACEHOLDER, prog_str),
         PromptMode::Test => TEST_PROMPT.replace(PLACEHOLDER, prog_str),
@@ -127,7 +152,12 @@ pub async fn llm_review(
                 .build(),
         )
         .await
-        .map_err(|e| llm_error!(ai_sdk, e))?;
+        .map_err(|e| {
+            OwlError::LlmError(
+                format!("could not send prompt to '{}'", ai_sdk),
+                e.to_string(),
+            )
+        })?;
 
     let mut buffer = String::new();
     for content_block in response.content {

@@ -1,90 +1,58 @@
+use super::{cmd_utils, fs_utils};
+use crate::common::OwlError;
 use std::ffi::OsStr;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::time::Duration;
 
-use super::cmd_utils;
-use super::owl_error::{OwlError, bad_chars, check_file_stem, not_supported, process_error};
+pub fn build_program(prog: &Path) -> Result<Option<BuildLog>, OwlError> {
+    match check_prog_lang(prog) {
+        Some(lang) => {
+            if !lang.command_exists() {
+                return Err(OwlError::CommandNotFound(format!(
+                    "'{}': command not found",
+                    lang.name()
+                )));
+            }
 
-pub trait ProgLang {
-    fn build_cmd(&self, filename: &str) -> Result<Command, OwlError>;
-    fn build_files(&self, target_stem: &str) -> Option<Vec<String>>;
-    fn name(&self) -> &str;
-    fn run_it(&self, target: &str, stdin: Option<&str>) -> Result<(String, u128), OwlError>;
-    fn should_build(&self) -> bool;
-    fn target_name(&self, target_stem: &str) -> String;
-    fn version_cmd(&self) -> Result<Command, OwlError>;
+            if lang.should_build() {
+                let build_log = lang.build(prog)?;
+                println!("{}", build_log.stdout);
 
-    fn build(&self, filename: &str) -> Result<BuildLog, OwlError> {
-        let output = self
-            .build_cmd(filename)?
-            .output()
-            .expect("[build] failed to spawn");
-
-        let stdout = String::from_utf8(output.stdout)
-            .map_err(|_| bad_chars!("build::stdout"))?
-            .to_string();
-        let stderr = String::from_utf8(output.stderr)
-            .map_err(|_| bad_chars!("build::stderr"))?
-            .to_string();
-
-        if output.status.success() {
-            let target_stem = check_file_stem!(Path::new(filename))?;
-            let target = self.target_name(target_stem);
-
-            let build_files = self.build_files(target_stem);
-
-            Ok(BuildLog {
-                target,
-                stdout,
-                build_files,
-            })
-        } else {
-            Err(process_error!("build", stderr))
+                Ok(Some(build_log))
+            } else {
+                Ok(None)
+            }
         }
-    }
-
-    fn command_exists(&self) -> bool {
-        self.version().is_ok()
-    }
-
-    fn version(&self) -> Result<String, OwlError> {
-        let output = self
-            .version_cmd()?
-            .output()
-            .expect("[version] failed to spawn");
-
-        if output.status.success() {
-            Ok(String::from_utf8(output.stdout)
-                .map_err(|_| bad_chars!("version::stdout"))?
-                .to_string())
-        } else {
-            Err(process_error!("version", "unable to determine version"))
-        }
-    }
-
-    fn run(&self, target: &str) -> Result<(String, u128), OwlError> {
-        self.run_it(target, None)
-    }
-
-    fn run_with_stdin(&self, target: &str, input: &str) -> Result<(String, u128), OwlError> {
-        self.run_it(target, Some(input))
+        None => Ok(None),
     }
 }
 
-pub struct BuildLog {
-    pub target: String,
-    pub stdout: String,
-    pub build_files: Option<Vec<String>>,
-}
-
-pub fn check_prog_lang(prog: &str) -> Option<Box<dyn ProgLang>> {
-    Path::new(prog)
-        .extension()
+pub fn check_prog_lang(prog: &Path) -> Option<Box<dyn ProgLang>> {
+    prog.extension()
         .and_then(OsStr::to_str)
-        .and_then(|ext| get_prog_lang(ext).ok())
+        .and_then(|ext| try_prog_lang(ext).ok())
 }
 
-pub fn get_prog_lang(lang_ext: &str) -> Result<Box<dyn ProgLang>, OwlError> {
+pub fn cleanup_program(
+    prog: &Path,
+    target: &Path,
+    build_files: Option<Vec<PathBuf>>,
+) -> Result<(), OwlError> {
+    if target != prog {
+        fs_utils::remove_path(target)?;
+    }
+
+    if let Some(build_files) = &build_files {
+        for build_file in build_files {
+            fs_utils::remove_path(build_file)?;
+        }
+    }
+
+    Ok(())
+}
+
+pub fn try_prog_lang(lang_ext: &str) -> Result<Box<dyn ProgLang>, OwlError> {
     match lang_ext {
         "adb" | "ads" => {
             let ada_lang = ComptimeLang {
@@ -183,10 +151,23 @@ pub fn get_prog_lang(lang_ext: &str) -> Result<Box<dyn ProgLang>, OwlError> {
                 cmd_str: "ghc",
                 ver_arg: "--version",
                 build_cmd_str: "ghc",
-                build_args: &["-O2", "-ferror-spans", "-threaded", "-rtsopts", "-dynamic"],
+                build_args: &[
+                    "-O2",
+                    "-ferror-spans",
+                    "-threaded",
+                    "-rtsopts",
+                    "-dynamic",
+                    "-outputdir",
+                    ".",
+                ],
                 exe_flag: Some(("-o", ArgsPosition::Pre)),
                 fn_build_files: Some(|thread_stem| {
-                    vec![format!("{}.hi", thread_stem), format!("{}.o", thread_stem)]
+                    vec![
+                        "Main.o".into(),
+                        "Main.hi".into(),
+                        format!("{}.hi", thread_stem),
+                        format!("{}.o", thread_stem),
+                    ]
                 }),
             };
             Ok(Box::new(haskell_lang))
@@ -195,7 +176,7 @@ pub fn get_prog_lang(lang_ext: &str) -> Result<Box<dyn ProgLang>, OwlError> {
             let java_lang = CustomLang {
                 name: "java",
                 build_cmd_str: "javac",
-                build_args: &["-encoding", "UTF-8"],
+                build_args: &["-encoding", "UTF-8", "-d", "."],
                 run_cmd_str: "java",
                 run_args: &["-Dfile.encoding=UTF-8", "-XX:+UseSerialGC", "-Xss64m"],
                 ver_arg: "--version",
@@ -260,24 +241,7 @@ pub fn get_prog_lang(lang_ext: &str) -> Result<Box<dyn ProgLang>, OwlError> {
             };
             Ok(Box::new(lua_lang))
         }
-        "ml" => {
-            let ocaml_lang = ComptimeLang {
-                name: "ocaml",
-                cmd_str: "ocamlopt",
-                ver_arg: "--version",
-                build_cmd_str: "ocamlopt",
-                build_args: &["-I", "+unix", "unix.cmxa", "-I", "+str", "str.cmxa"],
-                exe_flag: Some(("-o", ArgsPosition::Pre)),
-                fn_build_files: Some(|target_stem| {
-                    vec![
-                        format!("{}.cmi", target_stem),
-                        format!("{}.cmx", target_stem),
-                        format!("{}.o", target_stem),
-                    ]
-                }),
-            };
-            Ok(Box::new(ocaml_lang))
-        }
+        "ml" => Ok(Box::new(OcamlLang::new())),
         "odin" => {
             let odin_lang = ComptimeLang {
                 name: "odin",
@@ -324,7 +288,7 @@ pub fn get_prog_lang(lang_ext: &str) -> Result<Box<dyn ProgLang>, OwlError> {
             let ts_lang = CustomLang {
                 name: "typescript",
                 build_cmd_str: "tsc",
-                build_args: &["--module", "commonjs"],
+                build_args: &["--module", "commonjs", "-outDir", "."],
                 run_cmd_str: "node",
                 run_args: &[],
                 ver_arg: "--version",
@@ -345,8 +309,121 @@ pub fn get_prog_lang(lang_ext: &str) -> Result<Box<dyn ProgLang>, OwlError> {
             };
             Ok(Box::new(zig_lang))
         }
-        _ => Err(not_supported!(lang_ext)),
+        _ => Err(OwlError::Unsupported(lang_ext.to_string())),
     }
+}
+
+pub trait ProgLang {
+    fn build_cmd(&self, path: &Path) -> Result<Command, OwlError>;
+    fn build_files(&self, parent: &Path, target_stem: &str) -> Option<Vec<PathBuf>>;
+    fn name(&self) -> &str;
+    fn run_it(&self, path: &Path, stdin: Option<&str>) -> Result<(String, Duration), OwlError>;
+    fn should_build(&self) -> bool;
+    fn target_path(&self, parent: &Path, target_stem: &str) -> PathBuf;
+    fn version_cmd(&self) -> Result<Command, OwlError>;
+
+    fn build(&self, path: &Path) -> Result<BuildLog, OwlError> {
+        let output = self
+            .build_cmd(path)?
+            .output()
+            .expect("[build] failed to spawn");
+
+        if output.status.success() {
+            let stdout = String::from_utf8(output.stdout)
+                .map_err(|e| {
+                    OwlError::FileError(
+                        format!("'{}': could not read stdout", self.name()),
+                        e.to_string(),
+                    )
+                })?
+                .to_string();
+
+            let parent = path.parent().ok_or(OwlError::FileError(
+                format!("'{}': has no parent dir", path.to_string_lossy()),
+                "".into(),
+            ))?;
+
+            let target_stem =
+                path.file_stem()
+                    .and_then(OsStr::to_str)
+                    .ok_or(OwlError::UriError(
+                        format!("'{}': has no file stem", path.to_string_lossy()),
+                        "".into(),
+                    ))?;
+
+            Ok(BuildLog {
+                target: self.target_path(parent, target_stem),
+                stdout,
+                build_files: self.build_files(parent, target_stem),
+            })
+        } else {
+            let mut stderr = String::from_utf8(output.stderr)
+                .map_err(|e| {
+                    OwlError::FileError(
+                        format!("'{}': could not read stdout", self.name()),
+                        e.to_string(),
+                    )
+                })?
+                .to_string();
+
+            stderr.push_str("(run program manually for stack trace)");
+
+            Err(OwlError::ProcessError(
+                "'build': exit with status failed".into(),
+                stderr,
+            ))
+        }
+    }
+
+    fn command_exists(&self) -> bool {
+        self.version().is_ok()
+    }
+
+    fn version(&self) -> Result<String, OwlError> {
+        let output = self
+            .version_cmd()?
+            .output()
+            .expect("[version] failed to spawn");
+
+        if output.status.success() {
+            Ok(String::from_utf8(output.stdout)
+                .map_err(|e| {
+                    OwlError::FileError(
+                        format!("'{} version': could not read stdout", self.name()),
+                        e.to_string(),
+                    )
+                })?
+                .to_string())
+        } else {
+            let stderr = String::from_utf8(output.stderr)
+                .map_err(|e| {
+                    OwlError::FileError(
+                        format!("'{} version': could not read stderr", self.name()),
+                        e.to_string(),
+                    )
+                })?
+                .to_string();
+
+            Err(OwlError::ProcessError(
+                format!("'{} version': unable to determine version", self.name()),
+                stderr,
+            ))
+        }
+    }
+
+    fn run(&self, path: &Path) -> Result<(String, Duration), OwlError> {
+        self.run_it(path, None)
+    }
+
+    fn run_with_stdin(&self, path: &Path, input: &str) -> Result<(String, Duration), OwlError> {
+        self.run_it(path, Some(input))
+    }
+}
+
+pub struct BuildLog {
+    pub target: PathBuf,
+    pub stdout: String,
+    pub build_files: Option<Vec<PathBuf>>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -367,15 +444,21 @@ struct ComptimeLang {
 }
 
 impl ProgLang for ComptimeLang {
-    fn build_cmd(&self, filename: &str) -> Result<Command, OwlError> {
+    fn build_cmd(&self, path: &Path) -> Result<Command, OwlError> {
         let mut cmd = Command::new(self.build_cmd_str);
         cmd.args(self.build_args);
 
-        let target_stem = check_file_stem!(Path::new(filename))?;
+        let target_stem = path
+            .file_stem()
+            .and_then(OsStr::to_str)
+            .ok_or(OwlError::UriError(
+                format!("'{}': has no file stem", path.to_string_lossy()),
+                "".into(),
+            ))?;
 
         if let Some((flag, pos)) = self.exe_flag {
             if pos == ArgsPosition::Post {
-                cmd.arg(filename);
+                cmd.arg(path);
             }
 
             if flag.contains('=') || flag.contains(':') {
@@ -392,28 +475,34 @@ impl ProgLang for ComptimeLang {
             }
 
             if pos == ArgsPosition::Pre {
-                cmd.arg(filename);
+                cmd.arg(path);
             }
         } else {
-            cmd.arg(filename);
+            cmd.arg(path);
         }
 
         Ok(cmd)
     }
 
-    fn build_files(&self, target_stem: &str) -> Option<Vec<String>> {
+    fn build_files(&self, _: &Path, target_stem: &str) -> Option<Vec<PathBuf>> {
         self.fn_build_files
             .map(|get_build_files| (get_build_files)(target_stem))
+            .map(|build_names| {
+                build_names
+                    .into_iter()
+                    .map(PathBuf::from)
+                    .collect::<Vec<PathBuf>>()
+            })
     }
 
     fn name(&self) -> &str {
         self.name
     }
 
-    fn run_it(&self, target: &str, stdin: Option<&str>) -> Result<(String, u128), OwlError> {
+    fn run_it(&self, path: &Path, stdin: Option<&str>) -> Result<(String, Duration), OwlError> {
         match stdin {
-            Some(input) => cmd_utils::run_binary_with_stdin(target, input),
-            None => cmd_utils::run_binary(target),
+            Some(input) => cmd_utils::run_binary_with_stdin(path, input),
+            None => cmd_utils::run_binary(path),
         }
     }
 
@@ -421,8 +510,8 @@ impl ProgLang for ComptimeLang {
         true
     }
 
-    fn target_name(&self, target_stem: &str) -> String {
-        target_stem.to_string()
+    fn target_path(&self, _: &Path, target_stem: &str) -> PathBuf {
+        PathBuf::from(target_stem)
     }
 
     fn version_cmd(&self) -> Result<Command, OwlError> {
@@ -441,14 +530,18 @@ pub struct RuntimeLang {
 }
 
 impl ProgLang for RuntimeLang {
-    fn build_cmd(&self, filename: &str) -> Result<Command, OwlError> {
-        Err(process_error!(
-            "runtime::build",
-            format!("No build command ({}) for '{}'", self.name(), filename)
+    fn build_cmd(&self, path: &Path) -> Result<Command, OwlError> {
+        Err(OwlError::ProcessError(
+            format!(
+                "No build command ({}) for '{}'",
+                self.name(),
+                path.to_string_lossy()
+            ),
+            "".into(),
         ))
     }
 
-    fn build_files(&self, _: &str) -> Option<Vec<String>> {
+    fn build_files(&self, _: &Path, _: &str) -> Option<Vec<PathBuf>> {
         None
     }
 
@@ -456,10 +549,10 @@ impl ProgLang for RuntimeLang {
         self.name
     }
 
-    fn run_it(&self, target: &str, stdin: Option<&str>) -> Result<(String, u128), OwlError> {
+    fn run_it(&self, path: &Path, stdin: Option<&str>) -> Result<(String, Duration), OwlError> {
         let mut run_cmd = Command::new(self.cmd_str);
         run_cmd.args(self.cmd_args);
-        run_cmd.arg(target);
+        run_cmd.arg(path);
 
         match stdin {
             Some(input) => cmd_utils::run_cmd_with_stdin(self.cmd_str, run_cmd, input),
@@ -471,8 +564,11 @@ impl ProgLang for RuntimeLang {
         false
     }
 
-    fn target_name(&self, target_stem: &str) -> String {
-        target_stem.to_string()
+    fn target_path(&self, parent: &Path, target_stem: &str) -> PathBuf {
+        let mut path = parent.to_path_buf();
+        path.push(target_stem);
+
+        path
     }
 
     fn version_cmd(&self) -> Result<Command, OwlError> {
@@ -495,28 +591,40 @@ pub struct CustomLang {
 }
 
 impl ProgLang for CustomLang {
-    fn build_cmd(&self, filename: &str) -> Result<Command, OwlError> {
+    fn build_cmd(&self, path: &Path) -> Result<Command, OwlError> {
         let mut cmd = Command::new(self.build_cmd_str);
         cmd.args(self.build_args);
-        cmd.arg(filename);
+        cmd.arg(path);
 
         Ok(cmd)
     }
 
-    fn build_files(&self, target_stem: &str) -> Option<Vec<String>> {
+    fn build_files(&self, _: &Path, target_stem: &str) -> Option<Vec<PathBuf>> {
         self.fn_build_files
             .map(|get_build_files| (get_build_files)(target_stem))
+            .map(|build_names| {
+                build_names
+                    .into_iter()
+                    .map(PathBuf::from)
+                    .collect::<Vec<PathBuf>>()
+            })
     }
 
     fn name(&self) -> &str {
         self.name
     }
 
-    fn run_it(&self, target: &str, stdin: Option<&str>) -> Result<(String, u128), OwlError> {
+    fn run_it(&self, path: &Path, stdin: Option<&str>) -> Result<(String, Duration), OwlError> {
         let mut cmd = Command::new(self.run_cmd_str);
         cmd.args(self.run_args);
 
-        let target_stem = check_file_stem!(Path::new(target))?;
+        let target_stem = path
+            .file_stem()
+            .and_then(OsStr::to_str)
+            .ok_or(OwlError::UriError(
+                format!("'{}': has no file stem", path.to_string_lossy()),
+                "".into(),
+            ))?;
 
         cmd.arg(target_stem);
 
@@ -530,8 +638,8 @@ impl ProgLang for CustomLang {
         true
     }
 
-    fn target_name(&self, target_stem: &str) -> String {
-        (self.fn_target_name)(target_stem)
+    fn target_path(&self, _: &Path, target_stem: &str) -> PathBuf {
+        PathBuf::from((self.fn_target_name)(target_stem))
     }
 
     fn version_cmd(&self) -> Result<Command, OwlError> {
@@ -567,15 +675,15 @@ impl ErlLang {
 }
 
 impl ProgLang for ErlLang {
-    fn build_cmd(&self, filename: &str) -> Result<Command, OwlError> {
+    fn build_cmd(&self, path: &Path) -> Result<Command, OwlError> {
         let mut cmd = Command::new(self.cmd_str);
         cmd.args(self.build_args);
-        cmd.arg(filename);
+        cmd.arg(path);
 
         Ok(cmd)
     }
 
-    fn build_files(&self, _: &str) -> Option<Vec<String>> {
+    fn build_files(&self, _: &Path, _: &str) -> Option<Vec<PathBuf>> {
         None
     }
 
@@ -583,11 +691,17 @@ impl ProgLang for ErlLang {
         self.name
     }
 
-    fn run_it(&self, target: &str, stdin: Option<&str>) -> Result<(String, u128), OwlError> {
+    fn run_it(&self, path: &Path, stdin: Option<&str>) -> Result<(String, Duration), OwlError> {
         let mut cmd = Command::new(self.cmd_str);
         cmd.args(self.pre_run_args);
 
-        let target_stem = check_file_stem!(Path::new(target))?;
+        let target_stem = path
+            .file_stem()
+            .and_then(OsStr::to_str)
+            .ok_or(OwlError::UriError(
+                format!("'{}': has no file stem", path.to_string_lossy()),
+                "".into(),
+            ))?;
 
         cmd.arg(target_stem);
         cmd.args(self.post_run_args);
@@ -602,13 +716,103 @@ impl ProgLang for ErlLang {
         true
     }
 
-    fn target_name(&self, target_stem: &str) -> String {
-        (self.fn_target_name)(target_stem)
+    fn target_path(&self, _: &Path, target_stem: &str) -> PathBuf {
+        PathBuf::from((self.fn_target_name)(target_stem))
     }
 
     fn version_cmd(&self) -> Result<Command, OwlError> {
         let mut cmd = Command::new(self.cmd_str);
         cmd.args(self.ver_args);
+
+        Ok(cmd)
+    }
+}
+
+struct OcamlLang {
+    name: &'static str,
+    cmd_str: &'static str,
+    ver_arg: &'static str,
+    build_cmd_str: &'static str,
+    build_args: &'static [&'static str],
+}
+
+impl OcamlLang {
+    pub fn new() -> Self {
+        OcamlLang {
+            name: "ocaml",
+            cmd_str: "ocamlopt",
+            ver_arg: "--version",
+            build_cmd_str: "ocamlopt",
+            build_args: &["-I", "+unix", "unix.cmxa", "-I", "+str", "str.cmxa"],
+        }
+    }
+}
+
+impl ProgLang for OcamlLang {
+    fn build_cmd(&self, path: &Path) -> Result<Command, OwlError> {
+        let mut cmd = Command::new(self.build_cmd_str);
+        cmd.args(self.build_args);
+        cmd.arg(path);
+
+        let target_stem = path
+            .file_stem()
+            .and_then(OsStr::to_str)
+            .ok_or(OwlError::UriError(
+                format!("'{}': has no file stem", path.to_string_lossy()),
+                "".into(),
+            ))?;
+
+        cmd.args(["-o", target_stem]);
+
+        Ok(cmd)
+    }
+
+    fn build_files(&self, parent: &Path, target_stem: &str) -> Option<Vec<PathBuf>> {
+        let output_files = vec![
+            format!("{}.cmi", target_stem),
+            format!("{}.cmx", target_stem),
+            format!("{}.o", target_stem),
+        ];
+
+        let output_paths = output_files
+            .into_iter()
+            .map(|build_name| {
+                let mut path = parent.to_path_buf();
+                path.push(build_name);
+
+                path
+            })
+            .collect::<Vec<PathBuf>>();
+
+        if output_paths.is_empty() {
+            None
+        } else {
+            Some(output_paths)
+        }
+    }
+
+    fn name(&self) -> &str {
+        self.name
+    }
+
+    fn run_it(&self, path: &Path, stdin: Option<&str>) -> Result<(String, Duration), OwlError> {
+        match stdin {
+            Some(input) => cmd_utils::run_binary_with_stdin(path, input),
+            None => cmd_utils::run_binary(path),
+        }
+    }
+
+    fn should_build(&self) -> bool {
+        true
+    }
+
+    fn target_path(&self, _: &Path, target_stem: &str) -> PathBuf {
+        PathBuf::from(target_stem)
+    }
+
+    fn version_cmd(&self) -> Result<Command, OwlError> {
+        let mut cmd = Command::new(self.cmd_str);
+        cmd.arg(self.ver_arg);
 
         Ok(cmd)
     }
