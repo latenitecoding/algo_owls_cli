@@ -58,6 +58,8 @@ pub fn tui_file_explorer(stash_dir: &Path) -> Result<()> {
     let ps = SyntaxSet::load_defaults_newlines();
     let ts = ThemeSet::load_defaults();
 
+    let mut skip_lines = 0;
+
     loop {
         let file_cursor = file_explorer.current();
         let file_content = if file_cursor.is_file() {
@@ -112,6 +114,30 @@ pub fn tui_file_explorer(stash_dir: &Path) -> Result<()> {
             _ => "Failed to load file.".into(),
         };
 
+        let file_content = file_content
+            .split('\n')
+            .skip(skip_lines)
+            .map(|line| {
+                if line.len() <= 80 {
+                    return line.trim().to_string();
+                }
+
+                let mut buffer = String::new();
+
+                for chunk in line.trim().split(' ') {
+                    if chunk.len() >= 80 || (buffer.len() + chunk.len()) % 80 <= buffer.len() % 80 {
+                        buffer.push('\n');
+                    } else if !buffer.is_empty() {
+                        buffer.push(' ');
+                    }
+                    buffer.push_str(chunk);
+                }
+
+                buffer
+            })
+            .collect::<Vec<String>>()
+            .join("\n");
+
         let try_text = if let Some(prog_ext) =
             file_cursor.path().extension().and_then(OsStr::to_str)
             && let Some(syntax) = ps.find_syntax_by_extension(prog_ext)
@@ -159,10 +185,13 @@ pub fn tui_file_explorer(stash_dir: &Path) -> Result<()> {
         let event =
             read().map_err(|e| OwlError::TuiError("Failed to read event".into(), e.to_string()))?;
 
-        if let Event::Key(key) = event
-            && key.code == KeyCode::Char('q')
-        {
-            break;
+        if let Event::Key(key) = event {
+            match key.code {
+                KeyCode::Char('q') => break,
+                KeyCode::Char('f') => skip_lines += 1,
+                KeyCode::Char('e') => skip_lines = if skip_lines > 0 { skip_lines - 1 } else { 0 },
+                _ => skip_lines = 0,
+            };
         }
 
         file_explorer
