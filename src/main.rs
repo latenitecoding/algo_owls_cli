@@ -11,9 +11,7 @@ use common::OwlError;
 mod owl_core;
 
 mod owl_utils;
-use owl_utils::{PromptMode, Uri, fs_utils, prog_utils, toml_utils};
-
-use crate::owl_utils::cmd_utils;
+use owl_utils::{PromptMode, Uri, cmd_utils, fs_utils, prog_utils, toml_utils, tui_utils};
 
 const CHAT_DIR: &str = ".chat";
 const GIT_DIR: &str = ".git";
@@ -114,7 +112,12 @@ fn cli() -> Command {
                 .arg(arg!(<PROG> "The program to initialize from the template"))
                 .arg_required_else_help(true),
         )
-        .subcommand(Command::new("list").about("outputs information on stashed files"))
+        .subcommand(
+            Command::new("list")
+                .about("outputs information on stashed files")
+                .arg(arg!(--root "List starting from the root of the owlgo directory"))
+                .arg(arg!(--tui "Enters a TUI to preview files")),
+        )
         .subcommand(
             Command::new("quest")
                 .about("tests program against all test cases")
@@ -302,7 +305,7 @@ async fn main() {
                 let use_force = sub_matches.get_one::<bool>("force").is_some_and(|&f| f);
 
                 if let Err(e) = owl_core::push_git_remote(use_force) {
-                    report_owl_err!(&e);
+                    report_owl_err!(e);
                 }
             }
             Some(("remote", sub_matches)) => {
@@ -317,7 +320,7 @@ async fn main() {
                 let use_force = sub_matches.get_one::<bool>("force").is_some_and(|&f| f);
 
                 if let Err(e) = owl_core::sync_git_remote(use_force) {
-                    report_owl_err!(&e);
+                    report_owl_err!(e);
                 }
             }
             _ => unreachable!(),
@@ -353,29 +356,45 @@ async fn main() {
                 .map(|path| fs_utils::copy_file(&path, prog_path));
 
             if let Err(e) = action {
-                report_owl_err!(&e);
+                report_owl_err!(e);
             }
         }
-        Some(("list", _)) => {
-            let stash_dir = fs_utils::ensure_path_from_home(&[OWL_DIR, STASH_DIR], None)
-                .expect("stash dir exists");
+        Some(("list", sub_matches)) => {
+            let start_from_root = sub_matches.get_one::<bool>("root").is_some_and(|&f| f);
+            let use_tui = sub_matches.get_one::<bool>("tui").is_some_and(|&f| f);
 
-            let action = cmd_utils::tree_dir(&stash_dir).or_else(|_| {
-                fs_utils::dir_tree(&stash_dir)
-                    .map(|files| {
-                        files
-                            .into_iter()
-                            .map(|file| {
-                                file.to_str().unwrap_or(&file.to_string_lossy()).to_string()
-                            })
-                            .collect::<Vec<String>>()
-                            .join("\n")
-                    })
-                    .map(|stdout| println!("{}", stdout))
-            });
+            let target_dir = if start_from_root {
+                fs_utils::ensure_path_from_home(&[OWL_DIR], None).expect("owlgo dir exists")
+            } else {
+                fs_utils::ensure_path_from_home(&[OWL_DIR, STASH_DIR], None)
+                    .expect("stash dir exists")
+            };
+
+            let action = if use_tui {
+                tui_utils::tui_file_explorer(&target_dir)
+            } else {
+                cmd_utils::tree_dir(&target_dir).or_else(|_| {
+                    let dir_str = target_dir
+                        .to_str()
+                        .map(String::from)
+                        .unwrap_or(target_dir.to_string_lossy().to_string());
+
+                    fs_utils::dir_tree(&target_dir)
+                        .map(|files| {
+                            files
+                                .into_iter()
+                                .map(|file| {
+                                    file.to_str().unwrap_or(&file.to_string_lossy()).to_string()
+                                })
+                                .collect::<Vec<String>>()
+                                .join("\n")
+                        })
+                        .map(|stdout| println!("{}\n{}", dir_str, stdout))
+                })
+            };
 
             if let Err(e) = action {
-                report_owl_err!(&e);
+                report_owl_err!(e);
             }
         }
         Some(("quest", sub_matches)) => {
@@ -426,7 +445,7 @@ async fn main() {
                 });
 
             if let Err(e) = action {
-                report_owl_err!(&e);
+                report_owl_err!(e);
             }
         }
         Some(("review", sub_matches)) => {
@@ -472,7 +491,7 @@ async fn main() {
             )
             .await
             {
-                report_owl_err!(&e);
+                report_owl_err!(e);
             }
         }
         Some(("run", sub_matches)) => {
@@ -498,7 +517,7 @@ async fn main() {
                     .expect("manifest exists");
 
                 if let Err(e) = owl_core::show_it(&manifest_path) {
-                    report_owl_err!(&e);
+                    report_owl_err!(e);
                 }
 
                 return;
@@ -511,7 +530,7 @@ async fn main() {
                     .expect("program exists");
 
                 if let Err(e) = owl_core::show_it(&prog_path) {
-                    report_owl_err!(&e);
+                    report_owl_err!(e);
                 }
             } else if show_prompt {
                 let prompt_path =
@@ -519,11 +538,11 @@ async fn main() {
                         .expect("prompt exists");
 
                 if let Err(e) = owl_core::show_and_glow(&prompt_path) {
-                    report_owl_err!(&e);
+                    report_owl_err!(e);
                 }
             } else if let Some(test_name) = test {
                 if let Err(e) = owl_core::show_test(name, test_name, show_ans).await {
-                    report_owl_err!(&e);
+                    report_owl_err!(e);
                 }
             } else {
                 if rand {
@@ -531,7 +550,7 @@ async fn main() {
                 }
 
                 if let Err(e) = owl_core::show_quest(name, case, show_ans).await {
-                    report_owl_err!(&e);
+                    report_owl_err!(e);
                 }
             }
         }
@@ -573,7 +592,7 @@ async fn main() {
             )
             .await
             {
-                report_owl_err!(&e);
+                report_owl_err!(e);
             }
         }
         Some(("version", sub_matches)) => {
@@ -591,7 +610,7 @@ async fn main() {
 
                         let version = toml_utils::get_embedded_version(TOML_TEMPLATE)?;
                         let (manifest_version, timestamp) =
-                            toml_utils::get_manifest_version(&manifest_path)?;
+                            toml_utils::get_manifest_version_timestamp(&manifest_path)?;
 
                         println!("owlgo version {}", version);
 
@@ -609,7 +628,7 @@ async fn main() {
             };
 
             if let Err(e) = action {
-                report_owl_err!(&e);
+                report_owl_err!(e);
             }
         }
         _ => unreachable!(),
