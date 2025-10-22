@@ -87,17 +87,34 @@ fn cli() -> Command {
                 .arg_required_else_help(true),
         )
         .subcommand(
+            Command::new("git")
+                .about("provides git integration with the stash directory")
+                .subcommand(
+                    Command::new("push")
+                        .about("pushes all stashed solutions to the remote")
+                        .arg(arg!(-f --force "Forces the remote to match the local stash")),
+                )
+                .subcommand(
+                    Command::new("remote")
+                        .about("sets the stash to branch main on the git remote")
+                        .arg(arg!(<REMOTE> "The git remote"))
+                        .arg(arg!(-f --force "Replaces the current git remote"))
+                        .arg_required_else_help(true),
+                )
+                .subcommand(
+                    Command::new("sync")
+                        .about("syncs the stash directory to match the remote")
+                        .arg(arg!(-f --force "Removes all local changes")),
+                )
+                .arg_required_else_help(true),
+        )
+        .subcommand(
             Command::new("init")
                 .about("creates a local file from a stashed template")
                 .arg(arg!(<PROG> "The program to initialize from the template"))
                 .arg_required_else_help(true),
         )
         .subcommand(Command::new("list").about("outputs information on stashed files"))
-        .subcommand(
-            Command::new("push")
-                .about("pushes all stashed solutions to the remote")
-                .arg(arg!(-f --force "Forces the remote to match the local stash")),
-        )
         .subcommand(
             Command::new("quest")
                 .about("tests program against all test cases")
@@ -107,13 +124,6 @@ fn cli() -> Command {
                 .arg(arg!(-C --case <CASE> "The specific test to run by case number"))
                 .arg(arg!(-r --rand "Test against a random test case"))
                 .arg(arg!(-n --hint "Prints the hint/feedback (if any)"))
-                .arg_required_else_help(true),
-        )
-        .subcommand(
-            Command::new("remote")
-                .about("sets the stash to branch main on the git remote")
-                .arg(arg!(<REMOTE> "The git remote"))
-                .arg(arg!(-f --force "Replaces the current git remote"))
                 .arg_required_else_help(true),
         )
         .subcommand(
@@ -165,11 +175,6 @@ fn cli() -> Command {
                 .arg(arg!(-T --templ "Stashes the program away as a template"))
                 .arg(arg!(-P --prompt "Stashes the file away as a prompt"))
                 .arg_required_else_help(true),
-        )
-        .subcommand(
-            Command::new("sync")
-                .about("syncs the stash directory to match the remote")
-                .arg(arg!(-f --force "Removes all local changes")),
         )
         .subcommand(
             Command::new("test")
@@ -292,6 +297,31 @@ async fn main() {
                 report_owl_err!(e);
             }
         }
+        Some(("git", sub_matches)) => match sub_matches.subcommand() {
+            Some(("push", sub_matches)) => {
+                let use_force = sub_matches.get_one::<bool>("force").is_some_and(|&f| f);
+
+                if let Err(e) = owl_core::push_git_remote(use_force) {
+                    report_owl_err!(&e);
+                }
+            }
+            Some(("remote", sub_matches)) => {
+                let remote = sub_matches.get_one::<String>("REMOTE").expect("required");
+                let use_force = sub_matches.get_one::<bool>("force").is_some_and(|&f| f);
+
+                if let Err(e) = owl_core::set_git_remote(remote, use_force) {
+                    report_owl_err!(e);
+                }
+            }
+            Some(("sync", sub_matches)) => {
+                let use_force = sub_matches.get_one::<bool>("force").is_some_and(|&f| f);
+
+                if let Err(e) = owl_core::sync_git_remote(use_force) {
+                    report_owl_err!(&e);
+                }
+            }
+            _ => unreachable!(),
+        },
         Some(("init", sub_matches)) => {
             let prog = sub_matches.get_one::<String>("PROG").expect("required");
 
@@ -348,13 +378,6 @@ async fn main() {
                 report_owl_err!(&e);
             }
         }
-        Some(("push", sub_matches)) => {
-            let use_force = sub_matches.get_one::<bool>("force").is_some_and(|&f| f);
-
-            if let Err(e) = owl_core::push_git_remote(use_force) {
-                report_owl_err!(&e);
-            }
-        }
         Some(("quest", sub_matches)) => {
             let name = sub_matches.get_one::<String>("NAME").expect("required");
             let prog = sub_matches.get_one::<String>("PROG").expect("required");
@@ -382,14 +405,6 @@ async fn main() {
                         report_owl_err!(e);
                     }
                 }
-            }
-        }
-        Some(("remote", sub_matches)) => {
-            let remote = sub_matches.get_one::<String>("REMOTE").expect("required");
-            let use_force = sub_matches.get_one::<bool>("force").is_some_and(|&f| f);
-
-            if let Err(e) = owl_core::set_git_remote(remote, use_force) {
-                report_owl_err!(e);
             }
         }
         Some(("restore", sub_matches)) => {
@@ -527,13 +542,6 @@ async fn main() {
 
             if let Err(e) = owl_core::stash_file(Path::new(prog), is_templ, is_prompt) {
                 report_owl_err!(e);
-            }
-        }
-        Some(("sync", sub_matches)) => {
-            let use_force = sub_matches.get_one::<bool>("force").is_some_and(|&f| f);
-
-            if let Err(e) = owl_core::sync_git_remote(use_force) {
-                report_owl_err!(&e);
             }
         }
         Some(("test", sub_matches)) => {

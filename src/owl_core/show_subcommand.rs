@@ -1,7 +1,7 @@
+use crate::OWL_DIR;
 use crate::common::OwlError;
 use crate::owl_utils::cmd_utils;
 use crate::owl_utils::fs_utils;
-use crate::{OWL_DIR, STASH_DIR};
 use std::fs;
 use std::path::Path;
 
@@ -38,16 +38,16 @@ pub async fn show_quest(
     case_id: Option<usize>,
     show_ans: bool,
 ) -> Result<(), OwlError> {
-    let quest_path = fs_utils::ensure_path_from_home(&[OWL_DIR, STASH_DIR], Some(quest_name))?;
+    let quest_path = fs_utils::ensure_path_from_home(&[OWL_DIR], Some(quest_name))?;
 
     if !quest_path.exists() {
         super::fetch_quest(quest_name).await?;
     }
 
     let test_cases = if show_ans {
-        fs_utils::find_by_ext(&quest_path, "in")?
-    } else {
         fs_utils::find_by_ext(&quest_path, "ans")?
+    } else {
+        fs_utils::find_by_ext(&quest_path, "in")?
     };
 
     if let Some(case_number) = case_id {
@@ -64,16 +64,16 @@ pub async fn show_quest(
 }
 
 pub async fn show_test(quest_name: &str, test_name: &str, show_ans: bool) -> Result<(), OwlError> {
-    let quest_path = fs_utils::ensure_path_from_home(&[OWL_DIR, STASH_DIR], Some(quest_name))?;
+    let quest_path = fs_utils::ensure_path_from_home(&[OWL_DIR], Some(quest_name))?;
 
     if !quest_path.exists() {
         super::fetch_quest(quest_name).await?;
     }
 
     let test_case = if show_ans {
-        fs_utils::find_by_stem_and_ext(&quest_path, test_name, "in")?
-    } else {
         fs_utils::find_by_stem_and_ext(&quest_path, test_name, "ans")?
+    } else {
+        fs_utils::find_by_stem_and_ext(&quest_path, test_name, "in")?
     };
 
     show_it(&test_case)

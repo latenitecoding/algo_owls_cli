@@ -217,7 +217,7 @@ pub fn stdout_else_stderr(cmd_tag: &'static str, mut child: Child) -> Result<Str
 
 pub fn tree_dir(dir: &Path) -> Result<(), OwlError> {
     let mut child = Command::new("tree")
-        .args(["-s", "-h", "--du"])
+        .args(["-a", "-s", "-h", "--du", "-I", ".git"])
         .arg(dir)
         .spawn()
         .expect("[tree] failed to spawn");
