@@ -140,6 +140,8 @@ fn cli() -> Command {
                 .about("submits the program to an LLM for a code review")
                 .arg(arg!(<PROG> "The program to review"))
                 .arg(arg!([PROMPT] "The prompt or description to give"))
+                .arg(arg!(--sdk "Updates the chosen LLM sdk (e.g, 'claude')"))
+                .arg(arg!(--key "Updates the API key for the chosen LLM"))
                 .arg(arg!(-s --stash "The prompt/desc is from stash"))
                 .arg(arg!(-q --quest "The prompt/desc is related to a specific set of test cases"))
                 .arg(arg!(-f --file "The prompt/desc is in a file"))
@@ -453,6 +455,8 @@ async fn main() {
             let prompt = sub_matches
                 .get_one::<String>("PROMPT")
                 .map(String::to_owned);
+            let ai_sdk = sub_matches.get_one::<String>("sdk");
+            let api_key = sub_matches.get_one::<String>("key");
             let in_stash = sub_matches.get_one::<bool>("file").is_some_and(|&f| f);
             let in_quest = sub_matches.get_one::<bool>("file").is_some_and(|&f| f);
             let is_file = sub_matches.get_one::<bool>("file").is_some_and(|&f| f);
@@ -463,6 +467,39 @@ async fn main() {
             let use_explore = sub_matches.get_one::<bool>("explore").is_some_and(|&f| f);
             let use_opt = sub_matches.get_one::<bool>("opt").is_some_and(|&f| f);
             let use_test = sub_matches.get_one::<bool>("test").is_some_and(|&f| f);
+
+            if ai_sdk.is_some() || api_key.is_some() {
+                let action = fs_utils::ensure_path_from_home(&[OWL_DIR], Some(MANIFEST)).and_then(
+                    |manifest_path| {
+                        let mut manifest_doc = if manifest_path.exists() {
+                            toml_utils::read_toml(&manifest_path)?
+                        } else {
+                            TOML_TEMPLATE
+                                .parse::<toml_edit::DocumentMut>()
+                                .map_err(|e| {
+                                    OwlError::TomlError(
+                                        "Failed to parse TOML template".into(),
+                                        e.to_string(),
+                                    )
+                                })?
+                        };
+
+                        if let Some(sdk) = ai_sdk {
+                            manifest_doc["manifest"]["ai_sdk"] = toml_edit::value(sdk);
+                        }
+
+                        if let Some(key) = api_key {
+                            manifest_doc["manifest"]["api_key"] = toml_edit::value(key);
+                        }
+
+                        toml_utils::write_manifest(&manifest_doc, &manifest_path)
+                    },
+                );
+
+                if let Err(e) = action {
+                    report_owl_err!(e);
+                }
+            }
 
             let mode = if use_debug {
                 PromptMode::Debug
