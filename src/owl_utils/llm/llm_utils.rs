@@ -1,4 +1,4 @@
-use crate::{common::OwlError, owl_utils::toml_utils};
+use crate::{common::OwlError, common::Result, owl_utils::toml_utils};
 use anthropic_sdk::{Anthropic, ContentBlock, MessageCreateBuilder};
 use std::path::Path;
 
@@ -22,12 +22,6 @@ Consider:
 Suggest improvements and explain your reasoning for each suggestion.
 "#;
 
-const DESC_PROMPT: &str = r#"
-Please review the following problem description:
-[paste]
-I'm trying to implement a program to solve this problem.
-"#;
-
 const DEFAULT_PROMPT: &str = r#"
 Please review the following code:
 [paste]
@@ -38,6 +32,12 @@ Consider:
 4. Readability and maintainability
 5. Any security concerns
 Suggest improvements and explain your reasoning for each suggestion.
+"#;
+
+const DESC_PROMPT: &str = r#"
+Please review the following problem description:
+[paste]
+I'm trying to implement a program to solve this problem.
 "#;
 
 const EXPLAIN_PROMPT: &str = r#"
@@ -83,20 +83,20 @@ pub async fn llm_review(
     prog_str: &str,
     mode: PromptMode,
     prompt_str: Option<String>,
-) -> Result<(String, String), OwlError> {
+) -> Result<(String, String)> {
     let (ai_sdk, api_key) = toml_utils::get_manifest_ai_sdk(manifest_path)?;
 
     if ai_sdk.is_empty() {
         return Err(OwlError::LlmError(
-            "no LLM has been selected".into(),
-            "".into(),
+            "Failed to determine selected LLM".into(),
+            "'ai_sdk' in manifest is None".into(),
         ));
     }
 
     if api_key.is_empty() {
         return Err(OwlError::LlmError(
-            "no API key has been provided".into(),
-            "".into(),
+            "Failed to determine API key".into(),
+            "'api_key' in manifest is None".into(),
         ));
     }
 
@@ -111,7 +111,10 @@ pub async fn llm_review(
     };
 
     let client = Anthropic::new(api_key).map_err(|e| {
-        OwlError::LlmError(format!("could not connect to '{}'", ai_sdk), e.to_string())
+        OwlError::LlmError(
+            format!("Failed to connect to '{}' for code review", ai_sdk),
+            e.to_string(),
+        )
     })?;
 
     let suggested_prompt = match mode {
@@ -154,7 +157,7 @@ pub async fn llm_review(
         .await
         .map_err(|e| {
             OwlError::LlmError(
-                format!("could not send prompt to '{}'", ai_sdk),
+                format!("Failed to send prompt to '{}' for review", ai_sdk),
                 e.to_string(),
             )
         })?;

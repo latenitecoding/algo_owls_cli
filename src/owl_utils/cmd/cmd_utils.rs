@@ -220,16 +220,17 @@ pub fn tree_dir(dir: &Path) -> Result<(), OwlError> {
         .args(["-a", "-s", "-h", "--du", "-I", ".git"])
         .arg(dir)
         .spawn()
-        .expect("[tree] failed to spawn");
+        .map_err(|e| OwlError::ProcessError("[tree] failed to spawn".into(), e.to_string()))?;
 
-    let status = child.wait().expect("[tree] not running");
-
+    let status = child
+        .wait()
+        .map_err(|e| OwlError::ProcessError("[tree] not running".into(), e.to_string()))?;
     if status.success() {
         Ok(())
     } else {
         Err(OwlError::ProcessError(
-            format!("could not tree '{}'", dir.to_string_lossy()),
-            "".into(),
+            format!("Failed to tree dir '{}'", dir.to_string_lossy()),
+            "status failed".into(),
         ))
     }
 }

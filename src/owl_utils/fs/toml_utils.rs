@@ -1,5 +1,5 @@
 use super::{Uri, fs_utils};
-use crate::common::OwlError;
+use crate::common::{OwlError, Result};
 use reqwest;
 use std::cmp::Ordering;
 use std::fs::{self, File, OpenOptions};
@@ -11,8 +11,8 @@ use url::Url;
 pub async fn check_updates(
     remote_manifest_url: &Url,
     manifest_path: &Path,
-) -> Result<(Ordering, Ordering), OwlError> {
-    let (local_version, local_timestamp) = get_manifest_version(manifest_path)?;
+) -> Result<(Ordering, Ordering)> {
+    let (local_version, local_timestamp) = get_manifest_version_timestamp(manifest_path)?;
 
     let remote_doc = request_toml(remote_manifest_url).await?;
 
@@ -21,20 +21,20 @@ pub async fn check_updates(
         .map(String::from)
         .ok_or(OwlError::TomlError(
             format!(
-                "could not extract manifest version from '{}'",
+                "Failed to extract manifest version from remote '{}'",
                 remote_manifest_url
             ),
-            "".into(),
+            "None".into(),
         ))?;
     let remote_timestamp = remote_doc["manifest"]["timestamp"]
         .as_str()
         .map(String::from)
         .ok_or(OwlError::TomlError(
             format!(
-                "could not extract manifest timestamp from '{}'",
+                "Failed to extract manifest timestamp from remote '{}'",
                 remote_manifest_url
             ),
-            "".into(),
+            "None".into(),
         ))?;
 
     Ok((
@@ -50,11 +50,11 @@ pub async fn commit_doc(
     remote_doc: &DocumentMut,
     local_doc: &mut DocumentMut,
     and_fetch_to_tmp: Option<&Path>,
-) -> Result<(), OwlError> {
+) -> Result<()> {
     if let Some(personal_table) = remote_doc["personal"].as_table() {
         let mut quest_path = manifest_path
             .parent()
-            .expect("owlgo directory to exist")
+            .expect("manifest file to have parent owlgo directory")
             .to_path_buf();
 
         for (quest_name, quest_uri) in personal_table.iter() {
@@ -65,10 +65,10 @@ pub async fn commit_doc(
 
                 let quest_uri_str = quest_uri.as_str().ok_or(OwlError::TomlError(
                     format!(
-                        "invalid entry for '{}' in extension '{}'",
+                        "Invalid entry for '{}' in table 'personal' in extension '{}'",
                         quest_name, ext_name
                     ),
-                    "".into(),
+                    "None".into(),
                 ))?;
 
                 match Uri::try_from(quest_uri_str)? {
@@ -95,10 +95,10 @@ pub async fn commit_doc(
             if and_fetch_to_tmp.is_some() {
                 let prompt_uri_str = prompt_uri.as_str().ok_or(OwlError::TomlError(
                     format!(
-                        "invalid entry for '{}' in extension '{}'",
+                        "Invalid entry for '{}' in table 'prompts' in extension '{}'",
                         prompt_name, ext_name
                     ),
-                    "".into(),
+                    "None".into(),
                 ))?;
 
                 prompt_path.push(prompt_name);
@@ -124,14 +124,14 @@ pub async fn commit_extension(
     ext_doc: &DocumentMut,
     manifest_doc: &mut DocumentMut,
     and_fetch_to_tmp: Option<&Path>,
-) -> Result<(), OwlError> {
+) -> Result<()> {
     manifest_doc["extensions"][ext_name] = ext_doc["manifest"]["timestamp"].clone();
 
     let ext_uri_key = format!("{}.uri", ext_name);
     match ext_uri {
         Uri::Local(ext_path) => {
             manifest_doc["ext_uri"][ext_uri_key] = value(ext_path.to_str().ok_or(
-                OwlError::FileError("could not parse ext path".into(), "".into()),
+                OwlError::FileError("Invalid extension path".into(), "None".into()),
             )?)
         }
         Uri::Remote(ext_url) => manifest_doc["ext_uri"][ext_uri_key] = value(ext_url.as_str()),
@@ -150,13 +150,19 @@ pub async fn commit_extension(
     write_manifest(manifest_doc, manifest_path)
 }
 
-pub fn compare_stamps(s1: &str, s2: &str) -> Result<Ordering, OwlError> {
+pub fn compare_stamps(s1: &str, s2: &str) -> Result<Ordering> {
     for (s, t) in s1.split('.').zip(s2.split('.')) {
         let s_num = s.parse::<usize>().map_err(|e| {
-            OwlError::TomlError(format!("'{}': non-chrono timestamp", s1), e.to_string())
+            OwlError::TomlError(
+                format!("Failed to parse timestamp '{}' as (usize,,)", s1),
+                e.to_string(),
+            )
         })?;
         let t_num = t.parse::<usize>().map_err(|e| {
-            OwlError::TomlError(format!("'{}': non-chrono timestamp", s2), e.to_string())
+            OwlError::TomlError(
+                format!("Failed to parse timestamp '{}' as (usize,,)", s2),
+                e.to_string(),
+            )
         })?;
 
         if s_num < t_num {
@@ -171,7 +177,7 @@ pub fn compare_stamps(s1: &str, s2: &str) -> Result<Ordering, OwlError> {
     }
 }
 
-pub fn create_toml(path: &Path, toml_template: &str) -> Result<(), OwlError> {
+pub fn create_toml(path: &Path, toml_template: &str) -> Result<()> {
     let toml_file = OpenOptions::new()
         .create(true)
         .truncate(true)
@@ -179,7 +185,7 @@ pub fn create_toml(path: &Path, toml_template: &str) -> Result<(), OwlError> {
         .open(path)
         .map_err(|e| {
             OwlError::FileError(
-                format!("could not truncate '{}'", path.to_string_lossy()),
+                format!("Faile to truncate '{}' for writing", path.to_string_lossy()),
                 e.to_string(),
             )
         })?;
@@ -190,13 +196,13 @@ pub fn create_toml(path: &Path, toml_template: &str) -> Result<(), OwlError> {
         .write_all(toml_template.trim().as_bytes())
         .map_err(|e| {
             OwlError::FileError(
-                format!("could not write to TOML '{}'", path.to_string_lossy()),
+                format!("Failed to write TOML doc to '{}'", path.to_string_lossy()),
                 e.to_string(),
             )
         })?;
     writer.flush().map_err(|e| {
         OwlError::FileError(
-            format!("could not flush to TOML '{}'", path.to_string_lossy()),
+            format!("Failed to flush bytes to '{}'", path.to_string_lossy()),
             e.to_string(),
         )
     })?;
@@ -204,21 +210,21 @@ pub fn create_toml(path: &Path, toml_template: &str) -> Result<(), OwlError> {
     Ok(())
 }
 
-pub fn get_embedded_version(toml_str: &str) -> Result<String, OwlError> {
+pub fn get_embedded_version(toml_str: &str) -> Result<String> {
     let doc = toml_str
         .parse::<DocumentMut>()
-        .map_err(|e| OwlError::TomlError("could not parse TOML str".into(), e.to_string()))?;
+        .map_err(|e| OwlError::TomlError("Failed to parse str as TOML".into(), e.to_string()))?;
 
     doc["manifest"]["version"]
         .as_str()
         .map(String::from)
         .ok_or(OwlError::TomlError(
-            "could not extract TOML version".into(),
-            "".into(),
+            "Failed to extract embedded TOML version".into(),
+            "None".into(),
         ))
 }
 
-pub fn get_manifest_ai_sdk(manifest_path: &Path) -> Result<(String, String), OwlError> {
+pub fn get_manifest_ai_sdk(manifest_path: &Path) -> Result<(String, String)> {
     let doc = get_manifest_header_doc(manifest_path)?;
 
     let ai_sdk =
@@ -226,23 +232,23 @@ pub fn get_manifest_ai_sdk(manifest_path: &Path) -> Result<(String, String), Owl
             .as_str()
             .map(String::from)
             .ok_or(OwlError::TomlError(
-                "could not extract manifest ai_sdk".into(),
-                "".into(),
+                "Failed not extract entry 'ai_sdk' in table 'manifest'".into(),
+                "None".into(),
             ))?;
     let api_key = doc["manifest"]["api_key"]
         .as_str()
         .map(String::from)
         .ok_or(OwlError::TomlError(
-            "could not extract manifest api_key".into(),
-            "".into(),
+            "Failed not extract entry 'api_key' in table 'manifest'".into(),
+            "None".into(),
         ))?;
 
     Ok((ai_sdk, api_key))
 }
 
-pub fn get_manifest_header_doc(manifest_path: &Path) -> Result<DocumentMut, OwlError> {
+pub fn get_manifest_header_doc(manifest_path: &Path) -> Result<DocumentMut> {
     let file = File::open(manifest_path)
-        .map_err(|e| OwlError::FileError("could not open manifest".into(), e.to_string()))?;
+        .map_err(|e| OwlError::FileError("Failed to open manifest".into(), e.to_string()))?;
 
     let reader = BufReader::new(file);
 
@@ -255,62 +261,65 @@ pub fn get_manifest_header_doc(manifest_path: &Path) -> Result<DocumentMut, OwlE
             }
             Err(e) => {
                 return Err(OwlError::TomlError(
-                    "could not read manifest header".into(),
+                    "Failed to read manifest header".into(),
                     e.to_string(),
                 ));
             }
         }
     }
 
-    toml_str
-        .parse::<DocumentMut>()
-        .map_err(|e| OwlError::TomlError("could not parse manifest header".into(), e.to_string()))
+    toml_str.parse::<DocumentMut>().map_err(|e| {
+        OwlError::TomlError(
+            "Failed to parse manifest header as TOML".into(),
+            e.to_string(),
+        )
+    })
 }
 
-pub fn get_manifest_version(manifest_path: &Path) -> Result<(String, String), OwlError> {
+pub fn get_manifest_version_timestamp(manifest_path: &Path) -> Result<(String, String)> {
     let doc = get_manifest_header_doc(manifest_path)?;
 
     let version = doc["manifest"]["version"]
         .as_str()
         .map(String::from)
         .ok_or(OwlError::TomlError(
-            "could not extract manifest version".into(),
-            "".into(),
+            "Failed to extract 'version' from table 'manifest'".into(),
+            "None".into(),
         ))?;
     let timestamp = doc["manifest"]["timestamp"]
         .as_str()
         .map(String::from)
         .ok_or(OwlError::TomlError(
-            "could not extract manifest timestamp".into(),
-            "".into(),
+            "Failed to extract 'timestamp' from table 'manifest'".into(),
+            "None".into(),
         ))?;
 
     Ok((version, timestamp))
 }
 
-pub fn read_toml(path: &Path) -> Result<DocumentMut, OwlError> {
+pub fn read_toml(path: &Path) -> Result<DocumentMut> {
     fs::read_to_string(path)
         .map_err(|e| {
             OwlError::FileError(
-                format!("could not read TOML '{}'", path.to_string_lossy()),
+                format!("Failed to read '{}'", path.to_string_lossy()),
                 e.to_string(),
             )
         })?
         .parse::<DocumentMut>()
         .map_err(|e| {
             OwlError::TomlError(
-                format!("could not parse TOML '{}'", path.to_string_lossy()),
+                format!("Failed to parse '{}' as TOML", path.to_string_lossy()),
                 e.to_string(),
             )
         })
 }
 
-pub async fn request_toml(url: &Url) -> Result<DocumentMut, OwlError> {
+pub async fn request_toml(url: &Url) -> Result<DocumentMut> {
     reqwest::get(url.as_str())
         .await
         .map_err(|e| {
             OwlError::NetworkError(
-                format!("could not request '{}'", url.as_str()),
+                format!("Failed to request '{}'", url.as_str()),
                 e.to_string(),
             )
         })?
@@ -318,14 +327,14 @@ pub async fn request_toml(url: &Url) -> Result<DocumentMut, OwlError> {
         .await
         .map_err(|e| {
             OwlError::NetworkError(
-                format!("could not read response from '{}'", url.as_str()),
+                format!("Failed to read response from '{}'", url.as_str()),
                 e.to_string(),
             )
         })?
         .parse::<DocumentMut>()
         .map_err(|e| {
             OwlError::TomlError(
-                format!("could not parse TOML response from '{}'", url.as_str()),
+                format!("Failed to parse response from '{}' as TOML", url.as_str()),
                 e.to_string(),
             )
         })
@@ -335,7 +344,7 @@ pub async fn update_extensions(
     manifest_path: &Path,
     prompt_path: &Path,
     and_fetch_to_tmp: &Path,
-) -> Result<(), OwlError> {
+) -> Result<()> {
     let mut manifest_doc = read_toml(manifest_path)?;
 
     if let Some(ext_table) = manifest_doc["extensions"].as_table() {
@@ -352,10 +361,10 @@ pub async fn update_extensions(
                     .as_str()
                     .ok_or(OwlError::TomlError(
                         format!(
-                            "invalid entry for '{}' in extension '{}'",
+                            "Invalid entry for '{}' in table 'ext_uri' in extension '{}'",
                             ext_uri_key, ext_name
                         ),
-                        "".into(),
+                        "None".into(),
                     ))?;
 
             let remote_doc = match Uri::try_from(ext_uri_str)? {
@@ -368,18 +377,18 @@ pub async fn update_extensions(
                     .as_str()
                     .ok_or(OwlError::TomlError(
                         format!(
-                            "invalid entry for '{}' in extension '{}'",
-                            "timestamp", ext_name
+                            "Invalid entry for 'timestamp' in table 'manifest' from remote extension '{}'",
+                            ext_name
                         ),
-                        "".into(),
+                        "None".into(),
                     ))?;
 
             let ext_timestamp_str = ext_timestamp.as_str().ok_or(OwlError::TomlError(
                 format!(
-                    "invalid entry for '{}' in extension '{}'",
-                    "timestamp", ext_name
+                    "Invalid entry for 'timestamp' in table 'manifest' in local extension '{}'",
+                    ext_name
                 ),
-                "".into(),
+                "None".into(),
             ))?;
 
             if compare_stamps(ext_timestamp_str, remote_ext_timestamp)? == Ordering::Less {
@@ -425,7 +434,7 @@ pub async fn update_manifest(
     manifest_path: &Path,
     prompt_dir: &Path,
     tmp_archive: &Path,
-) -> Result<(), OwlError> {
+) -> Result<()> {
     if !manifest_path.exists() {
         println!("no manifest...");
         println!("downloading manifest...");
@@ -465,22 +474,29 @@ pub async fn update_manifest(
     Ok(())
 }
 
-pub fn write_manifest(manifest_doc: &DocumentMut, manifest_path: &Path) -> Result<(), OwlError> {
+pub fn write_manifest(manifest_doc: &DocumentMut, manifest_path: &Path) -> Result<()> {
     let manifest_file = OpenOptions::new()
         .create(true)
         .truncate(true)
         .write(true)
         .open(manifest_path)
-        .map_err(|e| OwlError::FileError("could not open manifest".into(), e.to_string()))?;
+        .map_err(|e| {
+            OwlError::FileError(
+                "Failed to truncate manifest for writing".into(),
+                e.to_string(),
+            )
+        })?;
 
     let mut writer = BufWriter::new(manifest_file);
 
     writer
         .write_all(manifest_doc.to_string().trim().as_bytes())
-        .map_err(|e| OwlError::FileError("could not write to manifest".into(), e.to_string()))?;
-    writer
-        .flush()
-        .map_err(|e| OwlError::FileError("could not flush to manifest".into(), e.to_string()))?;
+        .map_err(|e| {
+            OwlError::FileError("Failed to write TOML doc to manifest".into(), e.to_string())
+        })?;
+    writer.flush().map_err(|e| {
+        OwlError::FileError("Failed to flush bytes to manifest".into(), e.to_string())
+    })?;
 
     Ok(())
 }

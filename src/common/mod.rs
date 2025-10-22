@@ -1,3 +1,3 @@
 pub mod owl_error;
 
-pub use owl_error::OwlError;
+pub use owl_error::{OwlError, Result};

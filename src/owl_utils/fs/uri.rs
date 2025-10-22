@@ -2,7 +2,7 @@ use crate::common::OwlError;
 use std::path::PathBuf;
 use url::Url;
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub enum Uri {
     Local(PathBuf),
     Remote(Url),
@@ -13,7 +13,10 @@ impl TryFrom<&str> for Uri {
 
     fn try_from(s: &str) -> Result<Self, Self::Error> {
         if s.is_empty() {
-            Err(OwlError::UriError("empty URI".into(), s.into()))
+            Err(OwlError::UriError(
+                "Failed to parse URI".into(),
+                "is empty string".into(),
+            ))
         } else if let Ok(url) = Url::parse(s) {
             Ok(Uri::Remote(url))
         } else {

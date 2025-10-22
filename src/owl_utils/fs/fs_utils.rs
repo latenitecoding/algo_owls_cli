@@ -1,4 +1,4 @@
-use crate::common::OwlError;
+use crate::common::{OwlError, Result};
 use std::collections::VecDeque;
 use std::fs::{self, OpenOptions};
 use std::io::{Cursor, copy};
@@ -6,13 +6,14 @@ use std::path::{Path, PathBuf};
 use url::Url;
 use zip::ZipArchive;
 
-pub fn copy_file(src: &Path, dst: &Path) -> Result<(), OwlError> {
+pub fn copy_file(src: &Path, dst: &Path) -> Result<()> {
     let mut src_file = OpenOptions::new().read(true).open(src).map_err(|e| {
         OwlError::FileError(
-            format!("could not open on copy '{}'", src.to_string_lossy()),
+            format!("Failed to open '{}' for reading", src.to_string_lossy()),
             e.to_string(),
         )
     })?;
+
     let mut dst_file = OpenOptions::new()
         .create(true)
         .truncate(true)
@@ -20,7 +21,7 @@ pub fn copy_file(src: &Path, dst: &Path) -> Result<(), OwlError> {
         .open(dst)
         .map_err(|e| {
             OwlError::FileError(
-                format!("could not truncate on copy '{}'", dst.to_string_lossy()),
+                format!("Failed to truncate '{}' for writing", dst.to_string_lossy()),
                 e.to_string(),
             )
         })?;
@@ -28,7 +29,7 @@ pub fn copy_file(src: &Path, dst: &Path) -> Result<(), OwlError> {
     copy(&mut src_file, &mut dst_file).map_err(|e| {
         OwlError::FileError(
             format!(
-                "could not copy '{}' -> '{}'",
+                "Failed to copy '{}' into '{}'",
                 src.to_string_lossy(),
                 dst.to_string_lossy()
             ),
@@ -39,18 +40,21 @@ pub fn copy_file(src: &Path, dst: &Path) -> Result<(), OwlError> {
     Ok(())
 }
 
-pub fn dir_tree(root_dir: &Path) -> Result<Vec<PathBuf>, OwlError> {
+pub fn dir_tree(root_dir: &Path) -> Result<Vec<PathBuf>> {
     if !root_dir.exists() {
         return Err(OwlError::FileError(
-            format!("'{}': no such directory", root_dir.to_string_lossy()),
-            "".into(),
+            format!("Failed to access dir '{}'", root_dir.to_string_lossy()),
+            "no such directory <os error 2>".into(),
         ));
     }
 
     if !root_dir.is_dir() {
         return Err(OwlError::FileError(
-            format!("'{}': is not a directory", root_dir.to_string_lossy()),
-            "".into(),
+            format!(
+                "Failed to read entries in dir '{}'",
+                root_dir.to_string_lossy()
+            ),
+            "is file, not directory".into(),
         ));
     }
 
@@ -62,14 +66,17 @@ pub fn dir_tree(root_dir: &Path) -> Result<Vec<PathBuf>, OwlError> {
     while let Some(dir) = queue.pop_front() {
         for entry in fs::read_dir(&dir).map_err(|e| {
             OwlError::FileError(
-                format!("could not read dir '{}'", dir.to_string_lossy()),
+                format!("Failed to read dir '{}'", dir.to_string_lossy()),
                 e.to_string(),
             )
         })? {
             let path = entry
                 .map_err(|e| {
                     OwlError::FileError(
-                        format!("could not read entry in dir '{}'", dir.to_string_lossy()),
+                        format!(
+                            "Failed to determine path of dir entry '{}'",
+                            dir.to_string_lossy()
+                        ),
                         e.to_string(),
                     )
                 })?
@@ -86,24 +93,23 @@ pub fn dir_tree(root_dir: &Path) -> Result<Vec<PathBuf>, OwlError> {
     Ok(files)
 }
 
-pub async fn download_archive(
-    url: &Url,
-    tmp_archive: &Path,
-    out_dir: &Path,
-) -> Result<(), OwlError> {
+pub async fn download_archive(url: &Url, tmp_archive: &Path, out_dir: &Path) -> Result<()> {
     download_file(url, tmp_archive).await?;
     extract_archive(tmp_archive, out_dir)?;
     remove_path(tmp_archive)
 }
 
-pub async fn download_file(url: &Url, out: &Path) -> Result<(), OwlError> {
+pub async fn download_file(url: &Url, out: &Path) -> Result<()> {
     let resp = reqwest::get(url.as_str())
         .await
-        .map_err(|e| OwlError::NetworkError(format!("could not request '{}'", url), e.to_string()))?
+        .map_err(|e| OwlError::NetworkError(format!("Failed to request '{}'", url), e.to_string()))?
         .bytes()
         .await
         .map_err(|e| {
-            OwlError::NetworkError(format!("could not read response '{}'", url), e.to_string())
+            OwlError::NetworkError(
+                format!("Failed to read response from '{}'", url),
+                e.to_string(),
+            )
         })?;
 
     let mut cursor = Cursor::new(resp);
@@ -115,17 +121,18 @@ pub async fn download_file(url: &Url, out: &Path) -> Result<(), OwlError> {
         .open(out)
         .map_err(|e| {
             OwlError::FileError(
-                format!(
-                    "could not truncate download file '{}'",
-                    out.to_string_lossy()
-                ),
+                format!("Failed to truncate '{}' for writing", out.to_string_lossy()),
                 e.to_string(),
             )
         })?;
 
     copy(&mut cursor, &mut out_file).map_err(|e| {
         OwlError::FileError(
-            format!("could not copy '{}' -> '{}'", url, out.to_string_lossy()),
+            format!(
+                "Failed to copy response from '{}' into '{}'",
+                url,
+                out.to_string_lossy()
+            ),
             e.to_string(),
         )
     })?;
@@ -133,11 +140,12 @@ pub async fn download_file(url: &Url, out: &Path) -> Result<(), OwlError> {
     Ok(())
 }
 
-pub fn ensure_path_from_home(dirs: &[&str], file_str: Option<&str>) -> Result<PathBuf, OwlError> {
+pub fn ensure_path_from_home(dirs: &[&str], file_str: Option<&str>) -> Result<PathBuf> {
     let mut path = dirs::home_dir().ok_or(OwlError::FileError(
-        "could not find home dir".into(),
-        "".into(),
+        "Failed to find home dir".into(),
+        "None".into(),
     ))?;
+
     for dir in dirs {
         path.push(dir);
     }
@@ -145,7 +153,7 @@ pub fn ensure_path_from_home(dirs: &[&str], file_str: Option<&str>) -> Result<Pa
     if !path.exists() {
         fs::create_dir_all(&path).map_err(|e| {
             OwlError::FileError(
-                format!("could not create path '{}'", path.to_string_lossy()),
+                format!("Failed to create all dirs in '{}'", path.to_string_lossy()),
                 e.to_string(),
             )
         })?;
@@ -158,14 +166,14 @@ pub fn ensure_path_from_home(dirs: &[&str], file_str: Option<&str>) -> Result<Pa
     Ok(path)
 }
 
-pub fn extract_archive(archive_file: &Path, out_dir: &Path) -> Result<(), OwlError> {
+pub fn extract_archive(archive_file: &Path, out_dir: &Path) -> Result<()> {
     let zip_file = OpenOptions::new()
         .read(true)
         .open(archive_file)
         .map_err(|e| {
             OwlError::FileError(
                 format!(
-                    "could not open archive '{}'",
+                    "Failed to open zip archive '{}' for reading",
                     archive_file.to_string_lossy()
                 ),
                 e.to_string(),
@@ -175,7 +183,7 @@ pub fn extract_archive(archive_file: &Path, out_dir: &Path) -> Result<(), OwlErr
     let mut zip_archive = ZipArchive::new(zip_file).map_err(|e| {
         OwlError::FileError(
             format!(
-                "could not parse archive '{}'",
+                "Failed to parse zip archive '{}'",
                 archive_file.to_string_lossy()
             ),
             e.to_string(),
@@ -185,7 +193,10 @@ pub fn extract_archive(archive_file: &Path, out_dir: &Path) -> Result<(), OwlErr
     if !out_dir.exists() {
         fs::create_dir_all(out_dir).map_err(|e| {
             OwlError::FileError(
-                format!("could not create path '{}'", out_dir.to_string_lossy()),
+                format!(
+                    "Failed to create all dirs in '{}'",
+                    out_dir.to_string_lossy()
+                ),
                 e.to_string(),
             )
         })?;
@@ -194,7 +205,7 @@ pub fn extract_archive(archive_file: &Path, out_dir: &Path) -> Result<(), OwlErr
     zip_archive.extract(out_dir).map_err(|e| {
         OwlError::FileError(
             format!(
-                "could not extract '{}' -> '{}'",
+                "Failed to extract zip archive '{}' into '{}'",
                 archive_file.to_string_lossy(),
                 out_dir.to_string_lossy()
             ),
@@ -205,49 +216,14 @@ pub fn extract_archive(archive_file: &Path, out_dir: &Path) -> Result<(), OwlErr
     Ok(())
 }
 
-pub fn find_by_ext(root_dir: &Path, target_ext: &str) -> Result<Vec<PathBuf>, OwlError> {
-    dir_tree(root_dir)
-        .map(|files| {
-            files
-                .into_iter()
-                .filter(|file| {
-                    if let Some(ext) = file.extension()
-                        && ext == target_ext
-                    {
-                        true
-                    } else {
-                        false
-                    }
-                })
-                .collect::<Vec<PathBuf>>()
-        })
-        .map_or_else(Err, |files| {
-            if files.is_empty() {
-                Err(OwlError::FileError(
-                    format!(
-                        "no matches in '{}' matching '{}'",
-                        root_dir.to_string_lossy(),
-                        target_ext
-                    ),
-                    "".into(),
-                ))
-            } else {
-                Ok(files)
-            }
-        })
-}
+pub fn find_by_ext(root_dir: &Path, target_ext: &str) -> Result<Vec<PathBuf>> {
+    dir_tree(root_dir).map_or_else(Err, |files| {
+        let n = files.len();
 
-pub fn find_by_stem_and_ext(
-    root_dir: &Path,
-    target_stem: &str,
-    target_ext: &str,
-) -> Result<PathBuf, OwlError> {
-    dir_tree(root_dir)
-        .map(|files| {
-            files.into_iter().find(|file| {
-                if let Some(stem) = file.file_stem()
-                    && stem == target_stem
-                    && let Some(ext) = file.extension()
+        let matches = files
+            .into_iter()
+            .filter(|file| {
+                if let Some(ext) = file.extension()
                     && ext == target_ext
                 {
                     true
@@ -255,22 +231,59 @@ pub fn find_by_stem_and_ext(
                     false
                 }
             })
-        })
-        .map_or_else(Err, |file| match file {
+            .collect::<Vec<PathBuf>>();
+
+        if matches.is_empty() {
+            Err(OwlError::FileError(
+                format!(
+                    "No matches found in '{}' with ext matching '{}'",
+                    root_dir.to_string_lossy(),
+                    target_ext
+                ),
+                format!("'{}' files checked", n),
+            ))
+        } else {
+            Ok(matches)
+        }
+    })
+}
+
+pub fn find_by_stem_and_ext(
+    root_dir: &Path,
+    target_stem: &str,
+    target_ext: &str,
+) -> Result<PathBuf> {
+    dir_tree(root_dir).map_or_else(Err, |files| {
+        let n = files.len();
+
+        let file_match = files.into_iter().find(|file| {
+            if let Some(stem) = file.file_stem()
+                && stem == target_stem
+                && let Some(ext) = file.extension()
+                && ext == target_ext
+            {
+                true
+            } else {
+                false
+            }
+        });
+
+        match file_match {
             Some(target_file) => Ok(target_file),
             None => Err(OwlError::FileError(
                 format!(
-                    "no matches in '{}' matching '{}.{}'",
+                    "No matches found in '{}' matching '{}.{}'",
                     root_dir.to_string_lossy(),
                     target_stem,
                     target_ext
                 ),
-                "".into(),
+                format!("'{}' files checked", n),
             )),
-        })
+        }
+    })
 }
 
-pub fn remove_path(path: &Path) -> Result<(), OwlError> {
+pub fn remove_path(path: &Path) -> Result<()> {
     if !path.exists() {
         return Ok(());
     }
@@ -279,7 +292,7 @@ pub fn remove_path(path: &Path) -> Result<(), OwlError> {
         fs::remove_dir_all(path).map_err(|e| {
             OwlError::FileError(
                 format!(
-                    "could not remove-recursively dir '{}'",
+                    "Failed to remove-recursively dir '{}'",
                     path.to_string_lossy()
                 ),
                 e.to_string(),
@@ -288,7 +301,7 @@ pub fn remove_path(path: &Path) -> Result<(), OwlError> {
     } else if path.is_file() {
         fs::remove_file(path).map_err(|e| {
             OwlError::FileError(
-                format!("could not remove file '{}'", path.to_string_lossy()),
+                format!("Failed to remove file '{}'", path.to_string_lossy()),
                 e.to_string(),
             )
         })?;

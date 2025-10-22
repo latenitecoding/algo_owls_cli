@@ -1,5 +1,7 @@
 use std::fmt;
 
+pub type Result<T> = std::result::Result<T, OwlError>;
+
 #[derive(Debug)]
 pub enum OwlError {
     CommandNotFound(String),
@@ -9,6 +11,7 @@ pub enum OwlError {
     ProcessError(String, String),
     TestFailure(String),
     TomlError(String, String),
+    TuiError(String, String),
     Unsupported(String),
     UriError(String, String),
 }
@@ -41,6 +44,9 @@ impl fmt::Display for OwlError {
             }
             OwlError::TestFailure(expr) => write!(f, "{}", expr),
             OwlError::TomlError(expr, err_info) => {
+                write!(f, "{} (info: {})", expr, check_info!(err_info))
+            }
+            OwlError::TuiError(expr, err_info) => {
                 write!(f, "{} (info: {})", expr, check_info!(err_info))
             }
             OwlError::Unsupported(expr) => write!(f, "{}", expr),
