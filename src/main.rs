@@ -15,6 +15,8 @@ use owl_utils::{
     FileExplorerApp, PromptMode, Uri, cmd_utils, fs_utils, prog_utils, toml_utils, tui_utils,
 };
 
+use crate::owl_utils::FileApp;
+
 const CHAT_DIR: &str = ".chat";
 const GIT_DIR: &str = ".git";
 const MANIFEST: &str = ".manifest.toml";
@@ -174,6 +176,7 @@ fn cli() -> Command {
                 .arg(arg!(-p --program "Show a stashed program instead of a test case"))
                 .arg(arg!(-P --prompt "Show a stashed prompt instead of a test case"))
                 .arg(arg!(-m --manifest "Show the manifest"))
+                .arg(arg!(--tui "Show the file in a TUI"))
                 .arg_required_else_help(true),
         )
         .subcommand(
@@ -555,30 +558,41 @@ async fn main() {
             let show_program = sub_matches.get_one::<bool>("program").is_some_and(|&f| f);
             let show_prompt = sub_matches.get_one::<bool>("prompt").is_some_and(|&f| f);
             let show_manifest = sub_matches.get_one::<bool>("manifest").is_some_and(|&f| f);
+            let use_tui = sub_matches.get_one::<bool>("tui").is_some_and(|&f| f);
 
-            let action = if show_manifest {
-                let manifest_path = fs_utils::ensure_path_from_home(&[OWL_DIR], Some(MANIFEST))
-                    .expect("manifest exists");
+            let action = if show_program || show_prompt || show_manifest {
+                let path = if show_manifest {
+                    fs_utils::ensure_path_from_home(&[OWL_DIR], Some(MANIFEST))
+                        .expect("manifest exists")
+                } else {
+                    let name = sub_matches.get_one::<String>("NAME").expect("required");
 
-                owl_core::show_it(&manifest_path)
+                    if show_program {
+                        fs_utils::ensure_path_from_home(&[OWL_DIR, STASH_DIR], Some(name))
+                            .expect("program exists")
+                    } else {
+                        fs_utils::ensure_path_from_home(
+                            &[OWL_DIR, STASH_DIR, PROMPT_DIR],
+                            Some(name),
+                        )
+                        .expect("prompt exists")
+                    }
+                };
+
+                if use_tui {
+                    tui_utils::enter_raw_mode().and_then(|_| match FileApp::default().run(&path) {
+                        Ok(_) => tui_utils::exit_raw_mode(),
+                        Err(e) => tui_utils::exit_raw_mode().and(Err(e)),
+                    })
+                } else if show_manifest || show_program {
+                    owl_core::show_it(&path)
+                } else {
+                    owl_core::show_and_glow(&path)
+                }
             } else {
                 let name = sub_matches.get_one::<String>("NAME").expect("required");
 
-                if show_program {
-                    let prog_path =
-                        fs_utils::ensure_path_from_home(&[OWL_DIR, STASH_DIR], Some(name))
-                            .expect("program exists");
-
-                    owl_core::show_it(&prog_path)
-                } else if show_prompt {
-                    let prompt_path = fs_utils::ensure_path_from_home(
-                        &[OWL_DIR, STASH_DIR, PROMPT_DIR],
-                        Some(name),
-                    )
-                    .expect("prompt exists");
-
-                    owl_core::show_and_glow(&prompt_path)
-                } else if let Some(test_name) = test {
+                if let Some(test_name) = test {
                     owl_core::show_test(name, test_name, show_ans).await
                 } else {
                     if rand {

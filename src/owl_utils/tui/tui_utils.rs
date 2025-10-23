@@ -64,6 +64,7 @@ pub fn get_tui_theme() -> Theme {
 pub fn highlight_content(path: &Path, content: String, ps: &SyntaxSet, ts: &ThemeSet) -> String {
     if path.is_file()
         && let Some(prog_ext) = path.extension().and_then(OsStr::to_str)
+        && prog_ext != "md"
         && let Some(syntax) = ps.find_syntax_by_extension(prog_ext)
     {
         let theme = &ts.themes["base16-ocean.dark"];
@@ -81,6 +82,145 @@ pub fn highlight_content(path: &Path, content: String, ps: &SyntaxSet, ts: &Them
         buffer
     } else {
         content
+    }
+}
+
+#[derive(Debug, Default)]
+pub struct FileApp {
+    pub vertical_scroll_state: ScrollbarState,
+    pub vertical_scroll: usize,
+}
+
+impl FileApp {
+    pub fn run(mut self, path: &Path) -> Result<()> {
+        let mut terminal = Terminal::new(CrosstermBackend::new(stdout()))
+            .map_err(|e| OwlError::TuiError("Failed to setup terminal".into(), e.to_string()))?;
+
+        let layout = Layout::vertical([
+            Constraint::Min(1),
+            Constraint::Percentage(100),
+            Constraint::Min(1),
+        ]);
+
+        let ps = SyntaxSet::load_defaults_newlines();
+        let ts = ThemeSet::load_defaults();
+
+        let tick_rate = Duration::from_millis(250);
+        let mut last_tick = Instant::now();
+
+        loop {
+            terminal
+                .draw(|f| {
+                    let chunks = layout.split(f.area());
+
+                    let (file_content, num_lines) = match fs_utils::read_contents(path) {
+                        Ok(file_content) => {
+                            // let (content, n) = format_content(&file_content, cols);
+                            let content = highlight_content(path, file_content, &ps, &ts);
+                            let n = content.split('\n').count();
+
+                            (content, n)
+                        }
+                        _ => ("Failed to load file.".into(), 1),
+                    };
+
+                    self.vertical_scroll_state =
+                        self.vertical_scroll_state.content_length(num_lines);
+
+                    let filename = path
+                        .to_str()
+                        .map(|s| s.to_string())
+                        .unwrap_or(path.to_string_lossy().to_string());
+
+                    let title = Block::new()
+                        .title_alignment(Alignment::Center)
+                        .title(filename.italic());
+                    f.render_widget(title, chunks[0]);
+
+                    let paragraph = if let Some(ext) = path.extension().and_then(OsStr::to_str)
+                        && ext == "md"
+                    {
+                        Paragraph::new(tui_markdown::from_str(&file_content))
+                            .block(
+                                Block::default()
+                                    .borders(Borders::ALL)
+                                    .border_type(BorderType::Double),
+                            )
+                            .wrap(Wrap { trim: true })
+                            .scroll((self.vertical_scroll as u16, 0))
+                    } else if let Ok(text) = file_content.into_text() {
+                        Paragraph::new(text)
+                            .block(
+                                Block::default()
+                                    .borders(Borders::ALL)
+                                    .border_type(BorderType::Double),
+                            )
+                            .wrap(Wrap { trim: true })
+                            .scroll((self.vertical_scroll as u16, 0))
+                    } else {
+                        Paragraph::new(file_content)
+                            .block(
+                                Block::default()
+                                    .borders(Borders::ALL)
+                                    .border_type(BorderType::Double),
+                            )
+                            .scroll((self.vertical_scroll as u16, 0))
+                    };
+
+                    f.render_widget(Clear, chunks[1]);
+                    f.render_widget(paragraph, chunks[1]);
+                    f.render_stateful_widget(
+                        Scrollbar::new(ScrollbarOrientation::VerticalRight)
+                            .begin_symbol(Some("↑"))
+                            .end_symbol(Some("↓")),
+                        chunks[1],
+                        &mut self.vertical_scroll_state,
+                    );
+
+                    let helpbar = Block::new()
+                        .title_alignment(Alignment::Center)
+                        .title("Use ▲ ▼ to scroll ".bold());
+                    f.render_widget(helpbar, chunks[2]);
+                })
+                .map_err(|e| OwlError::TuiError("Failed to draw frame".into(), e.to_string()))?;
+
+            let timeout = tick_rate.saturating_sub(last_tick.elapsed());
+
+            if crossterm::event::poll(timeout).map_err(|e| {
+                OwlError::TuiError("Failed to compute timeout".into(), e.to_string())
+            })? {
+                let event = read().map_err(|e| {
+                    OwlError::TuiError("Failed to read event".into(), e.to_string())
+                })?;
+
+                if let Event::Key(key) = event {
+                    match key.code {
+                        KeyCode::Char('q') | KeyCode::Esc => break,
+                        KeyCode::Down => {
+                            self.vertical_scroll = self.vertical_scroll.saturating_add(1);
+                            self.vertical_scroll_state =
+                                self.vertical_scroll_state.position(self.vertical_scroll);
+                        }
+                        KeyCode::Up => {
+                            self.vertical_scroll = self.vertical_scroll.saturating_sub(1);
+                            self.vertical_scroll_state =
+                                self.vertical_scroll_state.position(self.vertical_scroll);
+                        }
+                        _ => {
+                            self.vertical_scroll = 0;
+                            self.vertical_scroll_state =
+                                self.vertical_scroll_state.position(self.vertical_scroll);
+                        }
+                    };
+                }
+            }
+
+            if last_tick.elapsed() >= tick_rate {
+                last_tick = Instant::now();
+            }
+        }
+
+        Ok(())
     }
 }
 
@@ -152,7 +292,19 @@ impl FileExplorerApp {
                         .title("Use h j k l to scroll ".bold());
                     f.render_widget(l_helpbar, l_chunks[1]);
 
-                    let paragraph = if let Ok(text) = file_content.into_text() {
+                    let paragraph = if let Some(ext) =
+                        file_cursor.path().extension().and_then(OsStr::to_str)
+                        && ext == "md"
+                    {
+                        Paragraph::new(tui_markdown::from_str(&file_content))
+                            .block(
+                                Block::default()
+                                    .borders(Borders::ALL)
+                                    .border_type(BorderType::Double),
+                            )
+                            .wrap(Wrap { trim: true })
+                            .scroll((self.vertical_scroll as u16, 0))
+                    } else if let Ok(text) = file_content.into_text() {
                         Paragraph::new(text)
                             .block(
                                 Block::default()
