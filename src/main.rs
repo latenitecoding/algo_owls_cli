@@ -1,7 +1,7 @@
-use clap::{Command, arg};
+use clap::{Arg, ArgAction, Command, arg};
 use std::cmp::Ordering;
 use std::ffi::OsStr;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process;
 use url::Url;
 
@@ -9,6 +9,7 @@ mod common;
 use common::OwlError;
 
 mod owl_core;
+use owl_core::ReviewPrompt;
 
 mod owl_utils;
 use owl_utils::{
@@ -149,19 +150,73 @@ fn cli() -> Command {
                 .about("submits the program to an LLM for a code review")
                 .arg(arg!(<PROG> "The program to review"))
                 .arg(arg!([PROMPT] "The prompt or description to give"))
-                .arg(arg!(-I --tui "Enters an interactive TUI to chat with chosen LLM"))
                 .arg(arg!(--sdk <SDK> "Updates the chosen LLM sdk (e.g, 'claude')"))
                 .arg(arg!(--key <KEY> "Updates the API key for the chosen LLM"))
-                .arg(arg!(-s --stash "The prompt/desc is from stash"))
-                .arg(arg!(-q --quest "The prompt/desc is related to a specific set of test cases"))
-                .arg(arg!(-f --file "The prompt/desc is in a file"))
+                .arg(arg!(-I --tui "Enters an interactive TUI to chat with chosen LLM"))
+                .arg(Arg::new("file")
+                    .short('f')
+                    .long("file")
+                    .action(ArgAction::SetTrue)
+                    .help("The prompt/desc is in a file")
+                    .conflicts_with_all(["quest", "stash"])
+                )
+                .arg(Arg::new("quest")
+                    .short('q')
+                    .long("quest")
+                    .action(ArgAction::SetTrue)
+                    .help("The prompt/desc is related to a specific set of test cases")
+                    .conflicts_with_all(["file", "stash"])
+                )
+                .arg(Arg::new("stash")
+                    .short('s')
+                    .long("stash")
+                    .action(ArgAction::SetTrue)
+                    .help("The prompt/desc is from stash")
+                    .conflicts_with_all(["file", "quest"])
+                )
                 .arg(arg!(-F --forget "Forget chat history after each prompt"))
-                .arg(arg!(-d --def "Use the default prompt"))
-                .arg(arg!(-D --debug "Prompt for debugging help"))
-                .arg(arg!(-x --explain "Prompt for help with the problem description"))
-                .arg(arg!(-X --explore "Prompt for alternative implementation"))
-                .arg(arg!(-o --opt "Prompt for optimization help"))
-                .arg(arg!(-t --test "Prompt for help identifying tests and edge cases"))
+                .arg(Arg::new("debug")
+                    .short('D')
+                    .long("debug")
+                    .action(ArgAction::SetTrue)
+                    .help("Prompt for debugging help")
+                    .conflicts_with_all(["default", "explain", "explore", "optimize", "test"])
+                )
+                .arg(Arg::new("default")
+                    .short('d')
+                    .long("def")
+                    .action(ArgAction::SetTrue)
+                    .help("Use the default prompt")
+                    .conflicts_with_all(["debug", "explain", "explore", "optimize", "test"])
+                )
+                .arg(Arg::new("explain")
+                    .short('x')
+                    .long("explain")
+                    .action(ArgAction::SetTrue)
+                    .help("Prompt for help with the problem description")
+                    .conflicts_with_all(["debug", "default", "explore", "optimize", "test"])
+                )
+                .arg(Arg::new("explore")
+                    .short('X')
+                    .long("explore")
+                    .action(ArgAction::SetTrue)
+                    .help("Prompt for alternative implementation")
+                    .conflicts_with_all(["debug", "default", "explain", "optimize", "test"])
+                )
+                .arg(Arg::new("optimize")
+                    .short('z')
+                    .long("opt")
+                    .action(ArgAction::SetTrue)
+                    .help("Prompt for optimization help")
+                    .conflicts_with_all(["debug", "default", "explain", "explore", "test"])
+                )
+                .arg(Arg::new("test")
+                    .short('t')
+                    .long("test")
+                    .action(ArgAction::SetTrue)
+                    .help("Prompt for help identifying tests and edge cases")
+                    .conflicts_with_all(["debug", "default", "explain", "explore", "optimize"])
+                )
                 .arg_required_else_help(true),
         )
         .subcommand(
@@ -479,18 +534,23 @@ async fn main() {
             let prompt = sub_matches
                 .get_one::<String>("PROMPT")
                 .map(String::to_owned);
+
             let ai_sdk = sub_matches.get_one::<String>("sdk");
             let api_key = sub_matches.get_one::<String>("key");
+
             let use_tui = sub_matches.get_one::<bool>("tui").is_some_and(|&f| f);
-            let in_stash = sub_matches.get_one::<bool>("file").is_some_and(|&f| f);
-            let in_quest = sub_matches.get_one::<bool>("file").is_some_and(|&f| f);
+
             let is_file = sub_matches.get_one::<bool>("file").is_some_and(|&f| f);
+            let in_quest = sub_matches.get_one::<bool>("quest").is_some_and(|&f| f);
+            let in_stash = sub_matches.get_one::<bool>("stash").is_some_and(|&f| f);
+
             let do_forget = sub_matches.get_one::<bool>("forget").is_some_and(|&f| f);
-            let use_default = sub_matches.get_one::<bool>("def").is_some_and(|&f| f);
+
+            let use_default = sub_matches.get_one::<bool>("default").is_some_and(|&f| f);
             let use_debug = sub_matches.get_one::<bool>("debug").is_some_and(|&f| f);
             let use_explain = sub_matches.get_one::<bool>("explain").is_some_and(|&f| f);
             let use_explore = sub_matches.get_one::<bool>("explore").is_some_and(|&f| f);
-            let use_opt = sub_matches.get_one::<bool>("opt").is_some_and(|&f| f);
+            let use_opt = sub_matches.get_one::<bool>("optimize").is_some_and(|&f| f);
             let use_test = sub_matches.get_one::<bool>("test").is_some_and(|&f| f);
 
             if ai_sdk.is_some() || api_key.is_some() {
@@ -536,24 +596,27 @@ async fn main() {
                 PromptMode::Optimize
             } else if use_test {
                 PromptMode::Test
-            } else if use_tui {
-                PromptMode::Chat
             } else if prompt.is_some() && !use_default {
                 PromptMode::Custom
             } else {
                 PromptMode::Default
             };
 
-            if let Err(e) = owl_core::review_program(
-                Path::new(prog),
-                prompt,
-                in_stash,
-                in_quest,
-                is_file,
-                do_forget,
-                mode,
-            )
-            .await
+            let check_prompt = prompt.map(|prompt_str| {
+                if is_file {
+                    ReviewPrompt::IsFile(PathBuf::from(prompt_str))
+                } else if in_stash {
+                    ReviewPrompt::InStash(prompt_str)
+                } else if in_quest {
+                    ReviewPrompt::InQuest(prompt_str)
+                } else {
+                    ReviewPrompt::UserPrompt(prompt_str)
+                }
+            });
+
+            if let Err(e) =
+                owl_core::review_program(Path::new(prog), check_prompt, mode, do_forget, use_tui)
+                    .await
             {
                 report_owl_err!(e);
             }

@@ -19,7 +19,7 @@ pub enum OwlError {
 macro_rules! check_info {
     ($err_info:expr) => {
         if $err_info.is_empty() {
-            "None"
+            "N/A"
         } else {
             $err_info
         }

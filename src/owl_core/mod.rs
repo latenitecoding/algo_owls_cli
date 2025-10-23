@@ -14,7 +14,7 @@ pub use clear_subcommand::{clear_programs, clear_quests};
 pub use fetch_subcommand::{fetch_extension, fetch_prompt, fetch_quest};
 pub use git_subcommand::{push_git_remote, set_git_remote, sync_git_remote};
 pub use quest_subcommand::{quest, quest_once};
-pub use review_subcommand::review_program;
+pub use review_subcommand::{ReviewPrompt, review_program};
 pub use run_subcommand::run_program;
 pub use show_subcommand::{show_and_glow, show_it, show_quest, show_test};
 pub use stash_subcommand::stash_file;

@@ -4,7 +4,6 @@ use std::path::Path;
 
 #[derive(Debug, PartialEq)]
 pub enum PromptMode {
-    Chat,
     Custom,
     Debug,
     Default,
@@ -130,9 +129,7 @@ pub async fn llm_review_with_client(
 
     let user_prompt = check_prompt
         .map(|prompt_str| {
-            if mode == PromptMode::Chat {
-                prompt_str.to_string()
-            } else if mode == PromptMode::Custom
+            if mode == PromptMode::Custom
                 && let Some(prog_str) = check_prog
             {
                 if prompt_str.contains(PLACEHOLDER) {

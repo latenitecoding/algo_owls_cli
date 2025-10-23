@@ -4,16 +4,21 @@ use crate::{CHAT_DIR, MANIFEST, OWL_DIR, PROMPT_DIR, PROMPT_FILE, STASH_DIR};
 use chrono::{DateTime, Local};
 use std::fs::{self, OpenOptions};
 use std::io::Write;
-use std::path::Path;
+use std::path::{Path, PathBuf};
+
+pub enum ReviewPrompt {
+    InQuest(String),
+    InStash(String),
+    IsFile(PathBuf),
+    UserPrompt(String),
+}
 
 pub async fn review_program(
     prog: &Path,
-    check_prompt: Option<String>,
-    in_stash: bool,
-    in_quest: bool,
-    is_file: bool,
-    forget_chat: bool,
+    check_prompt: Option<ReviewPrompt>,
     mode: PromptMode,
+    forget_chat: bool,
+    use_tui: bool,
 ) -> Result<()> {
     let manifest_path = fs_utils::ensure_path_from_home(&[OWL_DIR], Some(MANIFEST))?;
 
@@ -34,20 +39,21 @@ pub async fn review_program(
     })?;
 
     let check_prompt = match check_prompt {
-        Some(prompt_entry) => {
-            if is_file {
-                let prompt_str = fs::read_to_string(Path::new(&prompt_entry)).map_err(|e| {
+        Some(review_prompt) => match review_prompt {
+            ReviewPrompt::IsFile(path) => {
+                let prompt_str = fs::read_to_string(&path).map_err(|e| {
                     OwlError::FileError(
-                        format!("could not read prompt '{}'", prompt_entry),
+                        format!("could not read prompt '{}'", path.to_string_lossy()),
                         e.to_string(),
                     )
                 })?;
 
                 Some(prompt_str)
-            } else if in_stash {
+            }
+            ReviewPrompt::InStash(prompt_name) => {
                 let prompt_path = fs_utils::ensure_path_from_home(
                     &[OWL_DIR, STASH_DIR, PROMPT_DIR],
-                    Some(&prompt_entry),
+                    Some(&prompt_name),
                 )?;
 
                 let prompt_str = fs::read_to_string(&prompt_path).map_err(|e| {
@@ -58,9 +64,10 @@ pub async fn review_program(
                 })?;
 
                 Some(prompt_str)
-            } else if in_quest {
+            }
+            ReviewPrompt::InQuest(quest_name) => {
                 let prompt_path = fs_utils::ensure_path_from_home(
-                    &[OWL_DIR, STASH_DIR, &prompt_entry],
+                    &[OWL_DIR, STASH_DIR, &quest_name],
                     Some(PROMPT_FILE),
                 )?;
 
@@ -72,41 +79,37 @@ pub async fn review_program(
                 })?;
 
                 Some(prompt_str)
-            } else {
-                Some(prompt_entry)
             }
-        }
+            ReviewPrompt::UserPrompt(prompt_str) => Some(prompt_str),
+        },
         None => None,
     };
 
     let (ai_sdk, client) = llm_utils::try_llm_client(&manifest_path)?;
 
-    let response = match mode {
-        PromptMode::Chat => {
-            tui_utils::enter_raw_mode()?;
-            let response_text = LlmApp::default()
-                .run(
-                    &ai_sdk,
-                    &client,
-                    Some(&prog_str),
-                    check_prompt.as_deref(),
-                    mode,
-                )
-                .await?;
-            tui_utils::exit_raw_mode()?;
-
-            response_text
-        }
-        _ => {
-            llm_utils::llm_review_with_client(
+    let response = if use_tui {
+        tui_utils::enter_raw_mode()?;
+        let response_text = LlmApp::default()
+            .run(
                 &ai_sdk,
                 &client,
                 Some(&prog_str),
                 check_prompt.as_deref(),
                 mode,
             )
-            .await?
-        }
+            .await?;
+        tui_utils::exit_raw_mode()?;
+
+        response_text
+    } else {
+        llm_utils::llm_review_with_client(
+            &ai_sdk,
+            &client,
+            Some(&prog_str),
+            check_prompt.as_deref(),
+            mode,
+        )
+        .await?
     };
 
     let now: DateTime<Local> = Local::now();

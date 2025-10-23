@@ -396,6 +396,7 @@ pub struct LlmApp {
 impl LlmApp {
     pub fn draw(
         &mut self,
+        ai_sdk: &str,
         layout: &Layout,
         markdown_content: &[String],
         textarea: &TextArea,
@@ -412,7 +413,7 @@ impl LlmApp {
 
         let title = Block::new()
             .title_alignment(Alignment::Center)
-            .title("Claude".bold());
+            .title(ai_sdk.bold());
         f.render_widget(title, chunks[0]);
 
         f.render_widget(Clear, chunks[1]);
@@ -471,10 +472,10 @@ impl LlmApp {
                 .border_type(BorderType::Double),
         );
 
-        let mut markdown_content = vec!["**>>> claude**: Thinking...\n".to_string()];
+        let mut markdown_content = vec![format!("**>>> {}**: Thinking...\n", ai_sdk)];
 
         terminal
-            .draw(|f| self.draw(&layout, &markdown_content, &textarea, f))
+            .draw(|f| self.draw(ai_sdk, &layout, &markdown_content, &textarea, f))
             .map_err(|e| OwlError::TuiError("Failed to draw frame".into(), e.to_string()))?;
 
         llm_utils::llm_review_with_client(ai_sdk, client, check_prog, check_prompt, mode)
@@ -486,7 +487,7 @@ impl LlmApp {
 
         loop {
             terminal
-                .draw(|f| self.draw(&layout, &markdown_content, &textarea, f))
+                .draw(|f| self.draw(ai_sdk, &layout, &markdown_content, &textarea, f))
                 .map_err(|e| OwlError::TuiError("Failed to draw frame".into(), e.to_string()))?;
 
             if user_has_reply {
@@ -503,7 +504,7 @@ impl LlmApp {
                 user_has_reply = false;
 
                 terminal
-                    .draw(|f| self.draw(&layout, &markdown_content, &textarea, f))
+                    .draw(|f| self.draw(ai_sdk, &layout, &markdown_content, &textarea, f))
                     .map_err(|e| {
                         OwlError::TuiError("Failed to draw frame".into(), e.to_string())
                     })?;
@@ -545,7 +546,7 @@ impl LlmApp {
                                 .split('\n')
                                 .for_each(|line| markdown_content.push(line.to_string()));
 
-                            markdown_content.push("\n**>>> claude**: Thinking...\n".to_string());
+                            markdown_content.push(format!("\n**>>> {}**: Thinking...\n", ai_sdk));
 
                             user_has_reply = true;
                         }
