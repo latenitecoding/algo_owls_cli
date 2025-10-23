@@ -283,6 +283,53 @@ pub fn find_by_stem_and_ext(
     })
 }
 
+pub fn read_contents(path: &Path) -> Result<String> {
+    if !path.exists() {
+        Err(OwlError::FileError(
+            format!("Failed to access dir '{}'", path.to_string_lossy()),
+            "no such directory <os error 2>".into(),
+        ))
+    } else if path.is_dir() {
+        fs::read_dir(path)
+            .map(|dir_read| {
+                dir_read
+                    .into_iter()
+                    .map(|try_entry| match try_entry {
+                        Ok(dir_entry) => {
+                            let dir_name = dir_entry
+                                .file_name()
+                                .into_string()
+                                .unwrap_or_else(|e| e.to_string_lossy().to_string());
+
+                            if let Ok(ft) = dir_entry.file_type()
+                                && ft.is_dir()
+                            {
+                                format!("{}/", dir_name)
+                            } else {
+                                dir_name
+                            }
+                        }
+                        Err(_) => "<could not read entry name>".into(),
+                    })
+                    .collect::<Vec<String>>()
+                    .join("\n")
+            })
+            .map_err(|e| {
+                OwlError::FileError(
+                    format!("Failed to read entries in dir '{}'", path.to_string_lossy()),
+                    e.to_string(),
+                )
+            })
+    } else {
+        fs::read_to_string(path).map_err(|e| {
+            OwlError::FileError(
+                format!("Failed to read from '{}'", path.to_string_lossy()),
+                e.to_string(),
+            )
+        })
+    }
+}
+
 pub fn remove_path(path: &Path) -> Result<()> {
     if !path.exists() {
         return Ok(());
