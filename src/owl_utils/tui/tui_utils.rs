@@ -114,53 +114,64 @@ pub fn tui_file_explorer(stash_dir: &Path) -> Result<()> {
             _ => "Failed to load file.".into(),
         };
 
-        let file_content = file_content
-            .split('\n')
-            .skip(skip_lines)
-            .map(|line| {
-                if line.len() <= 80 {
-                    return line.trim().to_string();
-                }
-
-                let mut buffer = String::new();
-
-                for chunk in line.trim().split(' ') {
-                    if chunk.len() >= 80 || (buffer.len() + chunk.len()) % 80 <= buffer.len() % 80 {
-                        buffer.push('\n');
-                    } else if !buffer.is_empty() {
-                        buffer.push(' ');
-                    }
-                    buffer.push_str(chunk);
-                }
-
-                buffer
-            })
-            .collect::<Vec<String>>()
-            .join("\n");
-
-        let try_text = if let Some(prog_ext) =
-            file_cursor.path().extension().and_then(OsStr::to_str)
-            && let Some(syntax) = ps.find_syntax_by_extension(prog_ext)
-        {
-            let theme = &ts.themes["base16-ocean.dark"];
-            let mut h = HighlightLines::new(syntax, theme);
-
-            let mut buffer = String::new();
-            for line in LinesWithEndings::from(&file_content) {
-                if let Ok(ranges) = h.highlight_line(line, &ps) {
-                    let ansi_str = syntect::util::as_24_bit_terminal_escaped(&ranges, true);
-                    buffer.push_str(&ansi_str);
-                }
-            }
-
-            buffer.into_text()
-        } else {
-            file_content.into_text()
-        };
-
         terminal
             .draw(|f| {
                 let chunks = layout.split(f.area());
+
+                let rows = chunks[1].height as usize - 1;
+                let cols = chunks[1].width as usize - 1;
+
+                let file_lines = file_content
+                    .split('\n')
+                    .skip(skip_lines)
+                    .take(rows)
+                    .map(|line| {
+                        if line.len() <= cols {
+                            return line.trim().to_string();
+                        }
+
+                        let mut buffer = String::new();
+
+                        for chunk in line.trim().split(' ') {
+                            if chunk.len() >= cols
+                                || (buffer.len() + chunk.len()) % cols <= buffer.len() % cols
+                            {
+                                buffer.push('\n');
+                            } else if !buffer.is_empty() {
+                                buffer.push(' ');
+                            }
+                            buffer.push_str(chunk);
+                        }
+
+                        buffer
+                    })
+                    .collect::<Vec<String>>();
+
+                if file_lines.len() + 1 < rows && skip_lines > 0 {
+                    skip_lines -= 1;
+                }
+
+                let file_content = file_lines.join("\n");
+
+                let try_text = if file_cursor.is_file()
+                    && let Some(prog_ext) = file_cursor.path().extension().and_then(OsStr::to_str)
+                    && let Some(syntax) = ps.find_syntax_by_extension(prog_ext)
+                {
+                    let theme = &ts.themes["base16-ocean.dark"];
+                    let mut h = HighlightLines::new(syntax, theme);
+
+                    let mut buffer = String::new();
+                    for line in LinesWithEndings::from(&file_content) {
+                        if let Ok(ranges) = h.highlight_line(line, &ps) {
+                            let ansi_str = syntect::util::as_24_bit_terminal_escaped(&ranges, true);
+                            buffer.push_str(&ansi_str);
+                        }
+                    }
+
+                    buffer.into_text()
+                } else {
+                    file_content.into_text()
+                };
 
                 f.render_widget(&file_explorer.widget(), chunks[0]);
                 f.render_widget(Clear, chunks[1]);
