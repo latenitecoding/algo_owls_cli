@@ -11,7 +11,9 @@ use common::OwlError;
 mod owl_core;
 
 mod owl_utils;
-use owl_utils::{FileExplorerApp, PromptMode, Uri, cmd_utils, fs_utils, prog_utils, toml_utils};
+use owl_utils::{
+    FileExplorerApp, PromptMode, Uri, cmd_utils, fs_utils, prog_utils, toml_utils, tui_utils,
+};
 
 const CHAT_DIR: &str = ".chat";
 const GIT_DIR: &str = ".git";
@@ -374,7 +376,12 @@ async fn main() {
             };
 
             let action = if use_tui {
-                FileExplorerApp::default().run(&target_dir)
+                tui_utils::enter_raw_mode().and_then(|_| {
+                    match FileExplorerApp::default().run(&target_dir) {
+                        Ok(_) => tui_utils::exit_raw_mode(),
+                        Err(e) => tui_utils::exit_raw_mode().and(Err(e)),
+                    }
+                })
             } else {
                 cmd_utils::tree_dir(&target_dir).or_else(|_| {
                     let dir_str = target_dir

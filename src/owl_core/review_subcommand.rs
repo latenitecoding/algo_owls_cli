@@ -1,5 +1,5 @@
 use crate::common::{OwlError, Result};
-use crate::owl_utils::{LlmApp, PromptMode, cmd_utils, fs_utils, llm_utils};
+use crate::owl_utils::{LlmApp, PromptMode, cmd_utils, fs_utils, llm_utils, tui_utils};
 use crate::{CHAT_DIR, MANIFEST, OWL_DIR, PROMPT_DIR, PROMPT_FILE, STASH_DIR};
 use chrono::{DateTime, Local};
 use std::fs::{self, OpenOptions};
@@ -83,7 +83,8 @@ pub async fn review_program(
 
     let response = match mode {
         PromptMode::Chat => {
-            LlmApp::default()
+            tui_utils::enter_raw_mode()?;
+            let response_text = LlmApp::default()
                 .run(
                     &ai_sdk,
                     &client,
@@ -91,7 +92,10 @@ pub async fn review_program(
                     check_prompt.as_deref(),
                     mode,
                 )
-                .await?
+                .await?;
+            tui_utils::exit_raw_mode()?;
+
+            response_text
         }
         _ => {
             llm_utils::llm_review_with_client(

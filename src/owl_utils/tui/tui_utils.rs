@@ -24,6 +24,26 @@ use syntect::parsing::SyntaxSet;
 use syntect::util::LinesWithEndings;
 use tui_textarea::TextArea;
 
+pub fn enter_raw_mode() -> Result<()> {
+    enable_raw_mode()
+        .map_err(|e| OwlError::TuiError("Failed to enter raw mode".into(), e.to_string()))?;
+    stdout()
+        .execute(EnterAlternateScreen)
+        .map_err(|e| OwlError::TuiError("Failed to enable alt screen".into(), e.to_string()))?;
+
+    Ok(())
+}
+
+pub fn exit_raw_mode() -> Result<()> {
+    disable_raw_mode()
+        .map_err(|e| OwlError::TuiError("Failed to disable raw mode".into(), e.to_string()))?;
+    stdout()
+        .execute(LeaveAlternateScreen)
+        .map_err(|e| OwlError::TuiError("Failed to leave alt screen".into(), e.to_string()))?;
+
+    Ok(())
+}
+
 pub fn get_tui_theme() -> Theme {
     Theme::default()
         .with_block(Block::default().borders(Borders::ALL))
@@ -72,12 +92,6 @@ pub struct FileExplorerApp {
 
 impl FileExplorerApp {
     pub fn run(mut self, cwd: &Path) -> Result<()> {
-        enable_raw_mode()
-            .map_err(|e| OwlError::TuiError("Failed to enter raw mode".into(), e.to_string()))?;
-        stdout()
-            .execute(EnterAlternateScreen)
-            .map_err(|e| OwlError::TuiError("Failed to enable alt screen".into(), e.to_string()))?;
-
         let mut terminal = Terminal::new(CrosstermBackend::new(stdout()))
             .map_err(|e| OwlError::TuiError("Failed to setup terminal".into(), e.to_string()))?;
 
@@ -217,12 +231,6 @@ impl FileExplorerApp {
             }
         }
 
-        disable_raw_mode()
-            .map_err(|e| OwlError::TuiError("Failed to disable raw mode".into(), e.to_string()))?;
-        stdout()
-            .execute(LeaveAlternateScreen)
-            .map_err(|e| OwlError::TuiError("Failed to leave alt screen".into(), e.to_string()))?;
-
         Ok(())
     }
 }
@@ -291,12 +299,6 @@ impl LlmApp {
         check_prompt: Option<&str>,
         mode: PromptMode,
     ) -> Result<String> {
-        enable_raw_mode()
-            .map_err(|e| OwlError::TuiError("Failed to enter raw mode".into(), e.to_string()))?;
-        stdout()
-            .execute(EnterAlternateScreen)
-            .map_err(|e| OwlError::TuiError("Failed to enable alt screen".into(), e.to_string()))?;
-
         let mut terminal = Terminal::new(CrosstermBackend::new(stdout()))
             .map_err(|e| OwlError::TuiError("Failed to setup terminal".into(), e.to_string()))?;
 
@@ -406,12 +408,6 @@ impl LlmApp {
                 last_tick = Instant::now();
             }
         }
-
-        disable_raw_mode()
-            .map_err(|e| OwlError::TuiError("Failed to disable raw mode".into(), e.to_string()))?;
-        stdout()
-            .execute(LeaveAlternateScreen)
-            .map_err(|e| OwlError::TuiError("Failed to leave alt screen".into(), e.to_string()))?;
 
         Ok(markdown_content.join("\n"))
     }
