@@ -1,5 +1,5 @@
 use crate::OWL_DIR;
-use crate::common::OwlError;
+use crate::common::{OwlError, Result};
 use crate::owl_utils::{cmd_utils, fs_utils, prog_utils};
 use std::ffi::OsStr;
 use std::fs;
@@ -11,7 +11,7 @@ pub async fn quest(
     prog: &Path,
     case_id: Option<usize>,
     use_hints: bool,
-) -> Result<(), OwlError> {
+) -> Result<()> {
     let quest_path = fs_utils::ensure_path_from_home(&[OWL_DIR], Some(quest_name))?;
 
     if !quest_path.exists() {
@@ -83,7 +83,7 @@ pub fn quest_it(
     count: usize,
     total: usize,
     use_hints: bool,
-) -> Result<(bool, Option<Duration>), OwlError> {
+) -> Result<(bool, Option<Duration>)> {
     let in_stem = test_case
         .file_stem()
         .and_then(OsStr::to_str)
@@ -147,7 +147,7 @@ pub async fn quest_once(
     prog: &Path,
     test_name: &str,
     use_hints: bool,
-) -> Result<(), OwlError> {
+) -> Result<()> {
     let quest_path = fs_utils::ensure_path_from_home(&[OWL_DIR], Some(quest_name))?;
 
     if !quest_path.exists() {

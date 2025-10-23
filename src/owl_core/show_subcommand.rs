@@ -1,11 +1,11 @@
 use crate::OWL_DIR;
-use crate::common::OwlError;
+use crate::common::{OwlError, Result};
 use crate::owl_utils::cmd_utils;
 use crate::owl_utils::fs_utils;
 use std::fs;
 use std::path::Path;
 
-pub fn show_and_glow(target_path: &Path) -> Result<(), OwlError> {
+pub fn show_and_glow(target_path: &Path) -> Result<()> {
     cmd_utils::bat_file(target_path).or_else(|_| {
         cmd_utils::glow_file(target_path).or_else(|_| {
             fs::read_to_string(target_path)
@@ -20,7 +20,7 @@ pub fn show_and_glow(target_path: &Path) -> Result<(), OwlError> {
     })
 }
 
-pub fn show_it(target_path: &Path) -> Result<(), OwlError> {
+pub fn show_it(target_path: &Path) -> Result<()> {
     cmd_utils::bat_file(target_path).or_else(|_| {
         fs::read_to_string(target_path)
             .map(|contents| println!("{}", contents))
@@ -33,11 +33,7 @@ pub fn show_it(target_path: &Path) -> Result<(), OwlError> {
     })
 }
 
-pub async fn show_quest(
-    quest_name: &str,
-    case_id: Option<usize>,
-    show_ans: bool,
-) -> Result<(), OwlError> {
+pub async fn show_quest(quest_name: &str, case_id: Option<usize>, show_ans: bool) -> Result<()> {
     let quest_path = fs_utils::ensure_path_from_home(&[OWL_DIR], Some(quest_name))?;
 
     if !quest_path.exists() {
@@ -63,7 +59,7 @@ pub async fn show_quest(
     }
 }
 
-pub async fn show_test(quest_name: &str, test_name: &str, show_ans: bool) -> Result<(), OwlError> {
+pub async fn show_test(quest_name: &str, test_name: &str, show_ans: bool) -> Result<()> {
     let quest_path = fs_utils::ensure_path_from_home(&[OWL_DIR], Some(quest_name))?;
 
     if !quest_path.exists() {

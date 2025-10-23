@@ -1,12 +1,12 @@
 use super::cmd_utils;
-use crate::common::OwlError;
+use crate::common::{OwlError, Result};
 use crate::owl_utils::fs::fs_utils;
 use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::Duration;
 
-pub fn build_program(prog: &Path) -> Result<Option<BuildLog>, OwlError> {
+pub fn build_program(prog: &Path) -> Result<Option<BuildLog>> {
     match check_prog_lang(prog) {
         Some(lang) => {
             if !lang.command_exists() {
@@ -39,7 +39,7 @@ pub fn cleanup_program(
     prog: &Path,
     target: &Path,
     build_files: Option<Vec<PathBuf>>,
-) -> Result<(), OwlError> {
+) -> Result<()> {
     if target != prog {
         fs_utils::remove_path(target)?;
     }
@@ -53,7 +53,7 @@ pub fn cleanup_program(
     Ok(())
 }
 
-pub fn try_prog_lang(lang_ext: &str) -> Result<Box<dyn ProgLang>, OwlError> {
+pub fn try_prog_lang(lang_ext: &str) -> Result<Box<dyn ProgLang>> {
     match lang_ext {
         "adb" | "ads" => {
             let ada_lang = ComptimeLang {
@@ -315,15 +315,15 @@ pub fn try_prog_lang(lang_ext: &str) -> Result<Box<dyn ProgLang>, OwlError> {
 }
 
 pub trait ProgLang {
-    fn build_cmd(&self, path: &Path) -> Result<Command, OwlError>;
+    fn build_cmd(&self, path: &Path) -> Result<Command>;
     fn build_files(&self, parent: &Path, target_stem: &str) -> Option<Vec<PathBuf>>;
     fn name(&self) -> &str;
-    fn run_it(&self, path: &Path, stdin: Option<&str>) -> Result<(String, Duration), OwlError>;
+    fn run_it(&self, path: &Path, stdin: Option<&str>) -> Result<(String, Duration)>;
     fn should_build(&self) -> bool;
     fn target_path(&self, parent: &Path, target_stem: &str) -> PathBuf;
-    fn version_cmd(&self) -> Result<Command, OwlError>;
+    fn version_cmd(&self) -> Result<Command>;
 
-    fn build(&self, path: &Path) -> Result<BuildLog, OwlError> {
+    fn build(&self, path: &Path) -> Result<BuildLog> {
         let output = self
             .build_cmd(path)?
             .output()
@@ -380,7 +380,7 @@ pub trait ProgLang {
         self.version().is_ok()
     }
 
-    fn version(&self) -> Result<String, OwlError> {
+    fn version(&self) -> Result<String> {
         let output = self
             .version_cmd()?
             .output()
@@ -412,11 +412,11 @@ pub trait ProgLang {
         }
     }
 
-    fn run(&self, path: &Path) -> Result<(String, Duration), OwlError> {
+    fn run(&self, path: &Path) -> Result<(String, Duration)> {
         self.run_it(path, None)
     }
 
-    fn run_with_stdin(&self, path: &Path, input: &str) -> Result<(String, Duration), OwlError> {
+    fn run_with_stdin(&self, path: &Path, input: &str) -> Result<(String, Duration)> {
         self.run_it(path, Some(input))
     }
 }
@@ -445,7 +445,7 @@ struct ComptimeLang {
 }
 
 impl ProgLang for ComptimeLang {
-    fn build_cmd(&self, path: &Path) -> Result<Command, OwlError> {
+    fn build_cmd(&self, path: &Path) -> Result<Command> {
         let mut cmd = Command::new(self.build_cmd_str);
         cmd.args(self.build_args);
 
@@ -500,7 +500,7 @@ impl ProgLang for ComptimeLang {
         self.name
     }
 
-    fn run_it(&self, path: &Path, stdin: Option<&str>) -> Result<(String, Duration), OwlError> {
+    fn run_it(&self, path: &Path, stdin: Option<&str>) -> Result<(String, Duration)> {
         match stdin {
             Some(input) => cmd_utils::run_binary_with_stdin(path, input),
             None => cmd_utils::run_binary(path),
@@ -515,7 +515,7 @@ impl ProgLang for ComptimeLang {
         PathBuf::from(target_stem)
     }
 
-    fn version_cmd(&self) -> Result<Command, OwlError> {
+    fn version_cmd(&self) -> Result<Command> {
         let mut cmd = Command::new(self.cmd_str);
         cmd.arg(self.ver_arg);
 
@@ -531,7 +531,7 @@ pub struct RuntimeLang {
 }
 
 impl ProgLang for RuntimeLang {
-    fn build_cmd(&self, path: &Path) -> Result<Command, OwlError> {
+    fn build_cmd(&self, path: &Path) -> Result<Command> {
         Err(OwlError::ProcessError(
             format!(
                 "No build command ({}) for '{}'",
@@ -550,7 +550,7 @@ impl ProgLang for RuntimeLang {
         self.name
     }
 
-    fn run_it(&self, path: &Path, stdin: Option<&str>) -> Result<(String, Duration), OwlError> {
+    fn run_it(&self, path: &Path, stdin: Option<&str>) -> Result<(String, Duration)> {
         let mut run_cmd = Command::new(self.cmd_str);
         run_cmd.args(self.cmd_args);
         run_cmd.arg(path);
@@ -572,7 +572,7 @@ impl ProgLang for RuntimeLang {
         path
     }
 
-    fn version_cmd(&self) -> Result<Command, OwlError> {
+    fn version_cmd(&self) -> Result<Command> {
         let mut cmd = Command::new(self.cmd_str);
         cmd.arg(self.ver_arg);
 
@@ -592,7 +592,7 @@ pub struct CustomLang {
 }
 
 impl ProgLang for CustomLang {
-    fn build_cmd(&self, path: &Path) -> Result<Command, OwlError> {
+    fn build_cmd(&self, path: &Path) -> Result<Command> {
         let mut cmd = Command::new(self.build_cmd_str);
         cmd.args(self.build_args);
         cmd.arg(path);
@@ -615,7 +615,7 @@ impl ProgLang for CustomLang {
         self.name
     }
 
-    fn run_it(&self, path: &Path, stdin: Option<&str>) -> Result<(String, Duration), OwlError> {
+    fn run_it(&self, path: &Path, stdin: Option<&str>) -> Result<(String, Duration)> {
         let mut cmd = Command::new(self.run_cmd_str);
         cmd.args(self.run_args);
 
@@ -643,7 +643,7 @@ impl ProgLang for CustomLang {
         PathBuf::from((self.fn_target_name)(target_stem))
     }
 
-    fn version_cmd(&self) -> Result<Command, OwlError> {
+    fn version_cmd(&self) -> Result<Command> {
         let mut cmd = Command::new(self.build_cmd_str);
         cmd.arg(self.ver_arg);
 
@@ -676,7 +676,7 @@ impl ErlLang {
 }
 
 impl ProgLang for ErlLang {
-    fn build_cmd(&self, path: &Path) -> Result<Command, OwlError> {
+    fn build_cmd(&self, path: &Path) -> Result<Command> {
         let mut cmd = Command::new(self.cmd_str);
         cmd.args(self.build_args);
         cmd.arg(path);
@@ -692,7 +692,7 @@ impl ProgLang for ErlLang {
         self.name
     }
 
-    fn run_it(&self, path: &Path, stdin: Option<&str>) -> Result<(String, Duration), OwlError> {
+    fn run_it(&self, path: &Path, stdin: Option<&str>) -> Result<(String, Duration)> {
         let mut cmd = Command::new(self.cmd_str);
         cmd.args(self.pre_run_args);
 
@@ -721,7 +721,7 @@ impl ProgLang for ErlLang {
         PathBuf::from((self.fn_target_name)(target_stem))
     }
 
-    fn version_cmd(&self) -> Result<Command, OwlError> {
+    fn version_cmd(&self) -> Result<Command> {
         let mut cmd = Command::new(self.cmd_str);
         cmd.args(self.ver_args);
 
@@ -750,7 +750,7 @@ impl OcamlLang {
 }
 
 impl ProgLang for OcamlLang {
-    fn build_cmd(&self, path: &Path) -> Result<Command, OwlError> {
+    fn build_cmd(&self, path: &Path) -> Result<Command> {
         let mut cmd = Command::new(self.build_cmd_str);
         cmd.args(self.build_args);
         cmd.arg(path);
@@ -796,7 +796,7 @@ impl ProgLang for OcamlLang {
         self.name
     }
 
-    fn run_it(&self, path: &Path, stdin: Option<&str>) -> Result<(String, Duration), OwlError> {
+    fn run_it(&self, path: &Path, stdin: Option<&str>) -> Result<(String, Duration)> {
         match stdin {
             Some(input) => cmd_utils::run_binary_with_stdin(path, input),
             None => cmd_utils::run_binary(path),
@@ -811,7 +811,7 @@ impl ProgLang for OcamlLang {
         PathBuf::from(target_stem)
     }
 
-    fn version_cmd(&self) -> Result<Command, OwlError> {
+    fn version_cmd(&self) -> Result<Command> {
         let mut cmd = Command::new(self.cmd_str);
         cmd.arg(self.ver_arg);
 

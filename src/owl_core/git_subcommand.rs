@@ -1,8 +1,8 @@
-use crate::common::OwlError;
+use crate::common::{OwlError, Result};
 use crate::owl_utils::{fs_utils, git_utils};
 use crate::{GIT_DIR, OWL_DIR, STASH_DIR};
 
-pub fn push_git_remote(use_force: bool) -> Result<(), OwlError> {
+pub fn push_git_remote(use_force: bool) -> Result<()> {
     let git_path = fs_utils::ensure_path_from_home(&[OWL_DIR, STASH_DIR], Some(GIT_DIR))?;
 
     if git_path.exists() && !use_force {
@@ -33,7 +33,7 @@ pub fn push_git_remote(use_force: bool) -> Result<(), OwlError> {
         .map(|stdout| println!("{}", stdout))
 }
 
-pub fn set_git_remote(remote: &str, use_force: bool) -> Result<(), OwlError> {
+pub fn set_git_remote(remote: &str, use_force: bool) -> Result<()> {
     let git_path = fs_utils::ensure_path_from_home(&[OWL_DIR, STASH_DIR], Some(GIT_DIR))?;
 
     if git_path.exists() && !use_force {
@@ -67,7 +67,7 @@ pub fn set_git_remote(remote: &str, use_force: bool) -> Result<(), OwlError> {
         })
         .map(|stdout| println!("{}", stdout))
 }
-pub fn sync_git_remote(use_force: bool) -> Result<(), OwlError> {
+pub fn sync_git_remote(use_force: bool) -> Result<()> {
     let git_path = fs_utils::ensure_path_from_home(&[OWL_DIR, STASH_DIR], Some(GIT_DIR))?;
 
     if git_path.exists() && !use_force {

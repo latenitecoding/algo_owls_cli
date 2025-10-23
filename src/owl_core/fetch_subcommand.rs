@@ -1,9 +1,9 @@
-use crate::common::OwlError;
+use crate::common::{OwlError, Result};
 use crate::owl_utils::{Uri, fs_utils, toml_utils};
 use crate::{MANIFEST, OWL_DIR, PROMPT_DIR, STASH_DIR, TMP_ARCHIVE};
 use std::path::Path;
 
-pub async fn fetch_extension(ext_name: &str) -> Result<(), OwlError> {
+pub async fn fetch_extension(ext_name: &str) -> Result<()> {
     let manifest_path = fs_utils::ensure_path_from_home(&[OWL_DIR], Some(MANIFEST))?;
 
     if !manifest_path.exists() {
@@ -98,7 +98,7 @@ pub async fn fetch_extension(ext_name: &str) -> Result<(), OwlError> {
     Ok(())
 }
 
-pub async fn fetch_prompt(prompt_name: &str) -> Result<(), OwlError> {
+pub async fn fetch_prompt(prompt_name: &str) -> Result<()> {
     let manifest_path = fs_utils::ensure_path_from_home(&[OWL_DIR], Some(MANIFEST))?;
     let prompt_path =
         fs_utils::ensure_path_from_home(&[OWL_DIR, STASH_DIR, PROMPT_DIR], Some(prompt_name))?;
@@ -134,7 +134,7 @@ pub async fn fetch_prompt(prompt_name: &str) -> Result<(), OwlError> {
     }
 }
 
-pub async fn fetch_quest(quest_name: &str) -> Result<(), OwlError> {
+pub async fn fetch_quest(quest_name: &str) -> Result<()> {
     let manifest_path = fs_utils::ensure_path_from_home(&[OWL_DIR], Some(MANIFEST))?;
     let quest_dir = fs_utils::ensure_path_from_home(&[OWL_DIR], Some(quest_name))?;
 

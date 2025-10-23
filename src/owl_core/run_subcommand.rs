@@ -1,8 +1,8 @@
-use crate::common::OwlError;
+use crate::common::{OwlError, Result};
 use crate::owl_utils::{cmd_utils, prog_utils};
 use std::path::Path;
 
-pub fn run_program(prog: &Path) -> Result<(), OwlError> {
+pub fn run_program(prog: &Path) -> Result<()> {
     if !prog.exists() {
         return Err(OwlError::FileError(
             format!("'{}': program not found", prog.to_string_lossy()),

@@ -343,10 +343,9 @@ pub async fn request_toml(url: &Url) -> Result<DocumentMut> {
 pub async fn update_extensions(
     manifest_path: &Path,
     prompt_path: &Path,
+    manifest_doc: &mut DocumentMut,
     and_fetch_to_tmp: &Path,
 ) -> Result<()> {
-    let mut manifest_doc = read_toml(manifest_path)?;
-
     if let Some(ext_table) = manifest_doc["extensions"].as_table() {
         let mut tmp_doc = DocumentMut::new();
         tmp_doc["extensions"] = Table::new().into();
@@ -425,7 +424,7 @@ pub async fn update_extensions(
         }
     }
 
-    write_manifest(&manifest_doc, manifest_path)
+    write_manifest(manifest_doc, manifest_path)
 }
 
 pub async fn update_manifest(
@@ -439,13 +438,14 @@ pub async fn update_manifest(
         println!("no manifest...");
         println!("downloading manifest...");
 
-        let remote_doc = request_toml(manifest_url).await?;
-        write_manifest(&remote_doc, manifest_path)?;
+        let mut remote_doc = request_toml(manifest_url).await?;
 
         println!("updating extensions...");
 
-        update_extensions(manifest_path, prompt_dir, tmp_archive).await?
+        return update_extensions(manifest_path, prompt_dir, &mut remote_doc, tmp_archive).await;
     }
+
+    let mut manifest_doc = read_toml(manifest_path)?;
 
     let (version_order, timestamp_order) = check_updates(header_url, manifest_path).await?;
 
@@ -453,7 +453,6 @@ pub async fn update_manifest(
         println!("manifest out of date...");
         println!("updating manifest...");
 
-        let mut manifest_doc = read_toml(manifest_path)?;
         let remote_doc = request_toml(manifest_url).await?;
 
         manifest_doc["manifest"] = remote_doc["manifest"].clone();
@@ -464,7 +463,7 @@ pub async fn update_manifest(
 
     println!("updating extensions...");
 
-    update_extensions(manifest_path, prompt_dir, tmp_archive).await?;
+    update_extensions(manifest_path, prompt_dir, &mut manifest_doc, tmp_archive).await?;
 
     if version_order == Ordering::Less {
         println!("owlgo out of date...");

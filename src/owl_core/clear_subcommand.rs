@@ -1,10 +1,10 @@
-use crate::common::OwlError;
+use crate::common::{OwlError, Result};
 use crate::owl_utils::fs_utils;
 use crate::{CHAT_DIR, GIT_DIR, OWL_DIR, PROMPT_DIR, STASH_DIR};
 use std::ffi::OsStr;
 use std::fs;
 
-pub fn clear_programs() -> Result<(), OwlError> {
+pub fn clear_programs() -> Result<()> {
     let stash_dir = fs_utils::ensure_path_from_home(&[OWL_DIR], Some(STASH_DIR))?;
 
     if !stash_dir.exists() {
@@ -38,7 +38,7 @@ pub fn clear_programs() -> Result<(), OwlError> {
     Ok(())
 }
 
-pub fn clear_quests() -> Result<(), OwlError> {
+pub fn clear_quests() -> Result<()> {
     let owl_dir = fs_utils::ensure_path_from_home(&[OWL_DIR], None)?;
 
     if !owl_dir.exists() {

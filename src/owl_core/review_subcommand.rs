@@ -1,4 +1,4 @@
-use crate::common::OwlError;
+use crate::common::{OwlError, Result};
 use crate::owl_utils::{PromptMode, cmd_utils, fs_utils, llm_utils};
 use crate::{CHAT_DIR, MANIFEST, OWL_DIR, PROMPT_DIR, PROMPT_FILE, STASH_DIR};
 use chrono::{DateTime, Local};
@@ -14,7 +14,7 @@ pub async fn review_program(
     is_file: bool,
     forget_chat: bool,
     mode: PromptMode,
-) -> Result<(), OwlError> {
+) -> Result<()> {
     let manifest_path = fs_utils::ensure_path_from_home(&[OWL_DIR], Some(MANIFEST))?;
 
     if !manifest_path.exists() {

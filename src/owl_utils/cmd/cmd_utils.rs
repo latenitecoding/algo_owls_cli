@@ -1,10 +1,10 @@
-use crate::common::OwlError;
+use crate::common::{OwlError, Result};
 use std::io::{BufReader, Read, Write};
 use std::path::Path;
 use std::process::{Child, Command, Stdio};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-pub fn bat_file(path: &Path) -> Result<(), OwlError> {
+pub fn bat_file(path: &Path) -> Result<()> {
     if !path.exists() {
         return Err(OwlError::FileError(
             format!("'{}': no such file", path.to_string_lossy()),
@@ -14,29 +14,31 @@ pub fn bat_file(path: &Path) -> Result<(), OwlError> {
 
     if path.is_dir() {
         return Err(OwlError::ProcessError(
-            format!("cannot bat dir '{}'", path.to_string_lossy()),
-            "".into(),
+            format!("Failed to bat dir '{}'", path.to_string_lossy()),
+            "cannot bat a dir".into(),
         ));
     }
 
     let mut child = Command::new("bat")
         .arg(path)
         .spawn()
-        .expect("[bat] failed to spawn");
+        .map_err(|e| OwlError::ProcessError("[bat] failed to spawn".into(), e.to_string()))?;
 
-    let status = child.wait().expect("[bat] not running");
+    let status = child
+        .wait()
+        .map_err(|e| OwlError::ProcessError("[bat] not running".into(), e.to_string()))?;
 
     if status.success() {
         Ok(())
     } else {
         Err(OwlError::ProcessError(
-            format!("could not bat file '{}'", path.to_string_lossy()),
-            "".into(),
+            format!("Failed to bat file '{}'", path.to_string_lossy()),
+            "status failed".into(),
         ))
     }
 }
 
-pub fn glow_file(path: &Path) -> Result<(), OwlError> {
+pub fn glow_file(path: &Path) -> Result<()> {
     if !path.exists() {
         return Err(OwlError::FileError(
             format!("'{}': no such file", path.to_string_lossy()),
@@ -46,47 +48,49 @@ pub fn glow_file(path: &Path) -> Result<(), OwlError> {
 
     if path.is_dir() {
         return Err(OwlError::ProcessError(
-            format!("cannot glow dir '{}'", path.to_string_lossy()),
-            "".into(),
+            format!("Failed to glow dir '{}'", path.to_string_lossy()),
+            "cannot glow a dir".into(),
         ));
     }
 
     let mut child = Command::new("glow")
         .arg(path)
         .spawn()
-        .expect("[glow] failed to spawn");
+        .map_err(|e| OwlError::ProcessError("[glow] failed to spawn".into(), e.to_string()))?;
 
-    let status = child.wait().expect("[glow] not running");
+    let status = child
+        .wait()
+        .map_err(|e| OwlError::ProcessError("[glow] not running".into(), e.to_string()))?;
 
     if status.success() {
         Ok(())
     } else {
         Err(OwlError::ProcessError(
-            format!("could not glow file '{}'", path.to_string_lossy()),
-            "".into(),
+            format!("Failed to glow file '{}'", path.to_string_lossy()),
+            "status failed".into(),
         ))
     }
 }
 
-pub fn run_binary(exe: &Path) -> Result<(String, Duration), OwlError> {
+pub fn run_binary(exe: &Path) -> Result<(String, Duration)> {
     let exe_str = exe.to_str().ok_or(OwlError::UriError(
-        "invalid binary file URI".into(),
-        "".into(),
+        "Invalid binary file URI".into(),
+        "None".into(),
     ))?;
 
     run_cmd("./binary", Command::new(format!("./{}", exe_str)))
 }
 
-pub fn run_binary_with_stdin(exe: &Path, input: &str) -> Result<(String, Duration), OwlError> {
+pub fn run_binary_with_stdin(exe: &Path, input: &str) -> Result<(String, Duration)> {
     let exe_str = exe.to_str().ok_or(OwlError::UriError(
-        "invalid binary file URI".into(),
-        "".into(),
+        "Invalid binary file URI".into(),
+        "None".into(),
     ))?;
 
     run_cmd_with_stdin("./binary", Command::new(format!("./{}", exe_str)), input)
 }
 
-pub fn run_cmd(cmd_tag: &'static str, mut cmd: Command) -> Result<(String, Duration), OwlError> {
+pub fn run_cmd(cmd_tag: &'static str, mut cmd: Command) -> Result<(String, Duration)> {
     let start = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .expect("[run_cmd::start_time] unreachable");
@@ -95,7 +99,9 @@ pub fn run_cmd(cmd_tag: &'static str, mut cmd: Command) -> Result<(String, Durat
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
-        .unwrap_or_else(|_| panic!("[{}] failed to spawn", cmd_tag));
+        .map_err(|e| {
+            OwlError::ProcessError(format!("[{}] failed to spawn", cmd_tag), e.to_string())
+        })?;
 
     stdout_else_stderr(cmd_tag, child).map(|stdout| {
         let stop = SystemTime::now()
@@ -110,7 +116,7 @@ pub fn run_cmd_with_stdin(
     cmd_tag: &'static str,
     mut cmd: Command,
     input: &str,
-) -> Result<(String, Duration), OwlError> {
+) -> Result<(String, Duration)> {
     let start = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .expect("[run_cmd_with_stdin::start_time] unreachable");
@@ -120,20 +126,22 @@ pub fn run_cmd_with_stdin(
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
-        .unwrap_or_else(|_| panic!("[{}] failed to spawn", cmd_tag));
+        .map_err(|e| {
+            OwlError::ProcessError(format!("[{}] failed to spawn", cmd_tag), e.to_string())
+        })?;
 
-    let mut stdin = child.stdin.take().expect("stdin handle");
+    let mut stdin = child.stdin.take().expect("[stdin handle] unreachable");
     let write_result = stdin.write_all(input.as_bytes()).map_err(|e| {
         OwlError::FileError(
-            "could not write to stdin of child process".into(),
+            "Failed not write to stdin of child process".into(),
             e.to_string(),
         )
     });
 
     if let Err(e) = write_result {
-        child
-            .wait()
-            .unwrap_or_else(|_| panic!("[{}] not running", cmd_tag));
+        child.wait().map_err(|e| {
+            OwlError::ProcessError(format!("[{}] not running", cmd_tag), e.to_string())
+        })?;
 
         return Err(e);
     }
@@ -147,19 +155,19 @@ pub fn run_cmd_with_stdin(
     })
 }
 
-pub fn stderr_only(cmd_tag: &'static str, mut child: Child) -> Result<String, OwlError> {
-    let stderr_pipe = child.stderr.take().expect("stderr handle");
+pub fn stderr_only(cmd_tag: &'static str, mut child: Child) -> Result<String> {
+    let stderr_pipe = child.stderr.take().expect("[stderr handle] unreachable");
 
     let status = child
         .wait()
-        .unwrap_or_else(|_| panic!("[{}] not running", cmd_tag));
+        .map_err(|e| OwlError::ProcessError(format!("[{}] not running", cmd_tag), e.to_string()))?;
 
     let mut buffer = String::new();
 
     let mut reader = BufReader::new(stderr_pipe);
     reader.read_to_string(&mut buffer).map_err(|e| {
         OwlError::FileError(
-            format!("'{}': could not read stderr", cmd_tag),
+            format!("'{}': failed to read stderr", cmd_tag),
             e.to_string(),
         )
     })?;
@@ -176,13 +184,13 @@ pub fn stderr_only(cmd_tag: &'static str, mut child: Child) -> Result<String, Ow
     }
 }
 
-pub fn stdout_else_stderr(cmd_tag: &'static str, mut child: Child) -> Result<String, OwlError> {
-    let stdout_pipe = child.stdout.take().expect("stdout handle");
-    let stderr_pipe = child.stderr.take().expect("stderr handle");
+pub fn stdout_else_stderr(cmd_tag: &'static str, mut child: Child) -> Result<String> {
+    let stdout_pipe = child.stdout.take().expect("[stdout handle] unreachable");
+    let stderr_pipe = child.stderr.take().expect("[stderr handle] unreachable");
 
     let status = child
         .wait()
-        .unwrap_or_else(|_| panic!("[{}] not running", cmd_tag));
+        .map_err(|e| OwlError::ProcessError(format!("[{}] not running", cmd_tag), e.to_string()))?;
 
     if status.success() {
         let mut buffer = String::new();
@@ -190,7 +198,7 @@ pub fn stdout_else_stderr(cmd_tag: &'static str, mut child: Child) -> Result<Str
         let mut reader = BufReader::new(stdout_pipe);
         reader.read_to_string(&mut buffer).map_err(|e| {
             OwlError::FileError(
-                format!("'{}': could not read stdout", cmd_tag),
+                format!("'{}': failed to read stdout", cmd_tag),
                 e.to_string(),
             )
         })?;
@@ -202,7 +210,7 @@ pub fn stdout_else_stderr(cmd_tag: &'static str, mut child: Child) -> Result<Str
         let mut reader = BufReader::new(stderr_pipe);
         reader.read_to_string(&mut buffer).map_err(|e| {
             OwlError::FileError(
-                format!("'{}': could not read stderr", cmd_tag),
+                format!("'{}': failed to read stderr", cmd_tag),
                 e.to_string(),
             )
         })?;
@@ -215,7 +223,7 @@ pub fn stdout_else_stderr(cmd_tag: &'static str, mut child: Child) -> Result<Str
     }
 }
 
-pub fn tree_dir(dir: &Path) -> Result<(), OwlError> {
+pub fn tree_dir(dir: &Path) -> Result<()> {
     let mut child = Command::new("tree")
         .args(["-a", "-s", "-h", "--du", "-I", ".git"])
         .arg(dir)

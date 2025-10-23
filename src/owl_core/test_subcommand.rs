@@ -1,4 +1,4 @@
-use crate::common::OwlError;
+use crate::common::{OwlError, Result};
 use crate::owl_utils::{cmd_utils, prog_utils};
 use std::fs;
 use std::path::Path;
@@ -25,7 +25,7 @@ macro_rules! report_test_failed {
     };
 }
 
-pub fn test_it(target: &Path, in_file: &Path, ans_file: &Path) -> Result<Duration, OwlError> {
+pub fn test_it(target: &Path, in_file: &Path, ans_file: &Path) -> Result<Duration> {
     if !target.exists() {
         return Err(OwlError::FileError(
             format!("'{}': no such file", target.to_string_lossy()),
@@ -89,7 +89,7 @@ pub fn test_it(target: &Path, in_file: &Path, ans_file: &Path) -> Result<Duratio
     }
 }
 
-pub fn test_program(prog: &Path, in_file: &Path, ans_file: &Path) -> Result<(), OwlError> {
+pub fn test_program(prog: &Path, in_file: &Path, ans_file: &Path) -> Result<()> {
     let test_result = match prog_utils::check_prog_lang(prog) {
         Some(_) => {
             let (target, build_files) = match prog_utils::build_program(prog)? {

@@ -1,10 +1,10 @@
-use crate::common::OwlError;
+use crate::common::{OwlError, Result};
 use crate::owl_utils::fs_utils;
 use crate::{OWL_DIR, PROMPT_DIR, STASH_DIR, TEMPLATE_STEM};
 use std::ffi::OsStr;
 use std::path::Path;
 
-pub fn stash_file(prog: &Path, as_templ: bool, as_prompt: bool) -> Result<(), OwlError> {
+pub fn stash_file(prog: &Path, as_templ: bool, as_prompt: bool) -> Result<()> {
     let prog_file_name = prog
         .file_name()
         .and_then(OsStr::to_str)

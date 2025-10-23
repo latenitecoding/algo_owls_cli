@@ -232,7 +232,7 @@ async fn main() {
                     let mut manifest_path = owl_dir.clone();
                     manifest_path.push(MANIFEST);
 
-                    if do_all || do_manif {
+                    if (do_all || do_manif) && manifest_path.exists() {
                         fs_utils::remove_path(&manifest_path)?;
                     }
 
@@ -242,7 +242,7 @@ async fn main() {
                     let mut chat_dir = owl_dir.clone();
                     chat_dir.push(CHAT_DIR);
 
-                    if do_all || do_chat {
+                    if (do_all || do_chat) && chat_dir.exists() {
                         fs_utils::remove_path(&chat_dir)?;
                     }
 
@@ -252,7 +252,7 @@ async fn main() {
                     let mut stash_dir = owl_dir.clone();
                     stash_dir.push(STASH_DIR);
 
-                    if do_all || do_stash {
+                    if (do_all || do_stash) && stash_dir.exists() {
                         fs_utils::remove_path(&stash_dir)?;
                     }
 
@@ -263,7 +263,7 @@ async fn main() {
                     prompt_dir.push(STASH_DIR);
                     prompt_dir.push(PROMPT_DIR);
 
-                    if !do_all && !do_stash && do_prompts {
+                    if !do_all && !do_stash && do_prompts && prompt_dir.exists() {
                         fs_utils::remove_path(&prompt_dir)?;
                     }
 
@@ -290,15 +290,15 @@ async fn main() {
             let is_ext = sub_matches.get_one::<bool>("ext").is_some_and(|&f| f);
             let is_prompt = sub_matches.get_one::<bool>("prompt").is_some_and(|&f| f);
 
-            if is_ext {
-                if let Err(e) = owl_core::fetch_extension(name).await {
-                    report_owl_err!(e);
-                }
+            let action = if is_ext {
+                owl_core::fetch_extension(name).await
             } else if is_prompt {
-                if let Err(e) = owl_core::fetch_prompt(name).await {
-                    report_owl_err!(e);
-                }
-            } else if let Err(e) = owl_core::fetch_quest(name).await {
+                owl_core::fetch_prompt(name).await
+            } else {
+                owl_core::fetch_quest(name).await
+            };
+
+            if let Err(e) = action {
                 report_owl_err!(e);
             }
         }
@@ -349,7 +349,7 @@ async fn main() {
                 .and_then(OsStr::to_str)
                 .ok_or(OwlError::UriError(
                     format!("'{}': has no file extension", prog_path.to_string_lossy()),
-                    "".into(),
+                    "None".into(),
                 ))
                 .map(|ext| format!("{}.{}", TEMPLATE_STEM, ext))
                 .and_then(|file_str| {
@@ -413,19 +413,15 @@ async fn main() {
                 case = Some(rand::random::<u64>() as usize);
             }
 
-            match test {
+            let action = match test {
                 Some(test_name) => {
-                    if let Err(e) =
-                        owl_core::quest_once(name, Path::new(prog), test_name, use_hints).await
-                    {
-                        report_owl_err!(e);
-                    }
+                    owl_core::quest_once(name, Path::new(prog), test_name, use_hints).await
                 }
-                None => {
-                    if let Err(e) = owl_core::quest(name, Path::new(prog), case, use_hints).await {
-                        report_owl_err!(e);
-                    }
-                }
+                None => owl_core::quest(name, Path::new(prog), case, use_hints).await,
+            };
+
+            if let Err(e) = action {
+                report_owl_err!(e);
             }
         }
         Some(("restore", sub_matches)) => {
@@ -437,7 +433,7 @@ async fn main() {
                 .and_then(OsStr::to_str)
                 .ok_or(OwlError::UriError(
                     format!("'{}': has no filename", prog_path.to_string_lossy()),
-                    "".into(),
+                    "None".into(),
                 ))
                 .and_then(|file_name| {
                     let stash_path =
@@ -549,46 +545,41 @@ async fn main() {
             let show_prompt = sub_matches.get_one::<bool>("prompt").is_some_and(|&f| f);
             let show_manifest = sub_matches.get_one::<bool>("manifest").is_some_and(|&f| f);
 
-            if show_manifest {
+            let action = if show_manifest {
                 let manifest_path = fs_utils::ensure_path_from_home(&[OWL_DIR], Some(MANIFEST))
                     .expect("manifest exists");
 
-                if let Err(e) = owl_core::show_it(&manifest_path) {
-                    report_owl_err!(e);
-                }
-
-                return;
-            }
-
-            let name = sub_matches.get_one::<String>("NAME").expect("required");
-
-            if show_program {
-                let prog_path = fs_utils::ensure_path_from_home(&[OWL_DIR, STASH_DIR], Some(name))
-                    .expect("program exists");
-
-                if let Err(e) = owl_core::show_it(&prog_path) {
-                    report_owl_err!(e);
-                }
-            } else if show_prompt {
-                let prompt_path =
-                    fs_utils::ensure_path_from_home(&[OWL_DIR, STASH_DIR, PROMPT_DIR], Some(name))
-                        .expect("prompt exists");
-
-                if let Err(e) = owl_core::show_and_glow(&prompt_path) {
-                    report_owl_err!(e);
-                }
-            } else if let Some(test_name) = test {
-                if let Err(e) = owl_core::show_test(name, test_name, show_ans).await {
-                    report_owl_err!(e);
-                }
+                owl_core::show_it(&manifest_path)
             } else {
-                if rand {
-                    case = Some(rand::random::<u64>() as usize);
-                }
+                let name = sub_matches.get_one::<String>("NAME").expect("required");
 
-                if let Err(e) = owl_core::show_quest(name, case, show_ans).await {
-                    report_owl_err!(e);
+                if show_program {
+                    let prog_path =
+                        fs_utils::ensure_path_from_home(&[OWL_DIR, STASH_DIR], Some(name))
+                            .expect("program exists");
+
+                    owl_core::show_it(&prog_path)
+                } else if show_prompt {
+                    let prompt_path = fs_utils::ensure_path_from_home(
+                        &[OWL_DIR, STASH_DIR, PROMPT_DIR],
+                        Some(name),
+                    )
+                    .expect("prompt exists");
+
+                    owl_core::show_and_glow(&prompt_path)
+                } else if let Some(test_name) = test {
+                    owl_core::show_test(name, test_name, show_ans).await
+                } else {
+                    if rand {
+                        case = Some(rand::random::<u64>() as usize);
+                    }
+
+                    owl_core::show_quest(name, case, show_ans).await
                 }
+            };
+
+            if let Err(e) = action {
+                report_owl_err!(e);
             }
         }
         Some(("stash", sub_matches)) => {

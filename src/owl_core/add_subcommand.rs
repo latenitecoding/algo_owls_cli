@@ -1,10 +1,10 @@
-use crate::common::OwlError;
+use crate::common::{OwlError, Result};
 use crate::owl_utils::{Uri, fs_utils, toml_utils};
 use crate::{MANIFEST, OWL_DIR, PROMPT_DIR, STASH_DIR, TMP_ARCHIVE, TOML_TEMPLATE};
 use std::path::Path;
 use toml_edit::{DocumentMut, value};
 
-pub async fn add_extension(ext_name: &str, ext_uri: &Uri, and_fetch: bool) -> Result<(), OwlError> {
+pub async fn add_extension(ext_name: &str, ext_uri: &Uri, and_fetch: bool) -> Result<()> {
     let manifest_path = fs_utils::ensure_path_from_home(&[OWL_DIR], Some(MANIFEST))?;
     let prompt_dir = fs_utils::ensure_path_from_home(&[OWL_DIR, STASH_DIR, PROMPT_DIR], None)?;
 
@@ -46,7 +46,7 @@ pub async fn add_extension(ext_name: &str, ext_uri: &Uri, and_fetch: bool) -> Re
     .await
 }
 
-pub async fn add_quest(quest_name: &str, uri: &Uri, and_fetch: bool) -> Result<(), OwlError> {
+pub async fn add_quest(quest_name: &str, uri: &Uri, and_fetch: bool) -> Result<()> {
     let manifest_path = fs_utils::ensure_path_from_home(&[OWL_DIR], Some(MANIFEST))?;
 
     let mut manifest_doc = if manifest_path.exists() {
