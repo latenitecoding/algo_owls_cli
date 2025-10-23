@@ -32,7 +32,7 @@ const STASH_DIR: &str = ".stash";
 // it must be that [manifest] is at the top
 const TOML_TEMPLATE: &str = r#"
 [manifest]
-version = "0.1.4"
+version = "0.1.5"
 timestamp = "0.0.0"
 ai_sdk = "claude"
 api_key = ""
@@ -41,7 +41,7 @@ api_key = ""
 
 [ext_uri]
 
-[personal]
+[personal_quests]
 
 [prompts]
 
@@ -62,38 +62,41 @@ fn cli() -> Command {
         .arg_required_else_help(true)
         .subcommand(
             Command::new("add")
-                .about("adds new personal quest(s) and extensions to the manifest")
-                .arg(arg!(<NAME> "The name of the quest/manifest"))
+                .about("adds new personal quest/extension/prompt to the manifest")
+                .arg(arg!(<NAME> "The name of the quest/extension/prompt"))
                 .arg(arg!(<URI> "The URL/PATH to fetch from"))
                 .arg(arg!(-F --fetch "Fetches test cases and prompts"))
-                .arg(arg!(-m --manifest "The URL is a manifest to be committed"))
+                .arg(arg!(-e --ext "The URL is an extension to be committed"))
+                .arg(arg!(-P --prompt "The URL is a manifest to be committed"))
                 .arg_required_else_help(true),
         )
         .subcommand(
             Command::new("clear")
-                .about("removes all stashed test cases (and solutions)")
-                .arg(arg!(-s --stash "Removes all stashed programs/prompts (and the git dir)"))
+                .about("removes test cases and/or stashed files")
+                .arg(
+                    arg!(-s --stash "Removes all stashed programs/prompts/chats (and the git dir)"),
+                )
                 .arg(arg!(-p --program "Removes all stashed programs"))
                 .arg(arg!(-P --prompt "Removes all stashed prompts"))
-                .arg(arg!(-c --chat "Removes AI chat history"))
+                .arg(arg!(-C --chat "Removes LLM chat history"))
                 .arg(arg!(-m --manifest "Removes the manifest"))
                 .arg(arg!(-k --keep "Tests are not cleared"))
                 .arg(arg!(--all "Removes everything not excluded by other flags")),
         )
         .subcommand(
             Command::new("fetch")
-                .about("fetches sample test cases and prompts for the given quest or extension")
-                .arg(arg!(<NAME> "The name of the quest/extension"))
+                .about("fetches quests/extensions/prompts to your machine")
+                .arg(arg!(<NAME> "The name of the quest/extension/prompt"))
                 .arg(arg!(-e --ext "The name is a manifest extension"))
                 .arg(arg!(-P --prompt "The name is a prompt"))
                 .arg_required_else_help(true),
         )
         .subcommand(
             Command::new("git")
-                .about("provides git integration with the stash directory")
+                .about("provides git integration from within the stash directory")
                 .subcommand(
                     Command::new("push")
-                        .about("pushes all stashed solutions to the remote")
+                        .about("pushes all stashed files to the remote")
                         .arg(arg!(-f --force "Forces the remote to match the local stash")),
                 )
                 .subcommand(
@@ -119,24 +122,26 @@ fn cli() -> Command {
         .subcommand(
             Command::new("list")
                 .about("outputs information on stashed files")
-                .arg(arg!(--root "List starting from the root of the owlgo directory"))
-                .arg(arg!(--tui "Enters a TUI to preview files")),
+                .arg(arg!(-I --tui "Enters an interactive TUI to preview files"))
+                .arg(arg!(-O --root "List starting from the root of the owlgo directory"))
+                .arg(arg!(-P --prompt "List starting in the prompt directory"))
+                .arg(arg!(-C --chat "List starting in the chat directory")),
         )
         .subcommand(
             Command::new("quest")
-                .about("tests program against all test cases")
+                .about("tests program against all test cases in the selected quest")
                 .arg(arg!(<NAME> "The name of the quest"))
                 .arg(arg!(<PROG> "The program to test"))
                 .arg(arg!(-t --test <TEST> "The specific test to run by name"))
-                .arg(arg!(-C --case <CASE> "The specific test to run by case number"))
+                .arg(arg!(-c --case <CASE> "The specific test to run by case number"))
                 .arg(arg!(-r --rand "Test against a random test case"))
-                .arg(arg!(-n --hint "Prints the hint/feedback (if any)"))
+                .arg(arg!(--hints "Prints the hint(s)/feedback (if any)"))
                 .arg_required_else_help(true),
         )
         .subcommand(
             Command::new("restore")
-                .about("restores the program to the version stashed away")
-                .arg(arg!(<PROG> "The program to restore"))
+                .about("restores the file/program to the version stashed away")
+                .arg(arg!(<PROG> "The file/program to restore"))
                 .arg_required_else_help(true),
         )
         .subcommand(
@@ -144,13 +149,13 @@ fn cli() -> Command {
                 .about("submits the program to an LLM for a code review")
                 .arg(arg!(<PROG> "The program to review"))
                 .arg(arg!([PROMPT] "The prompt or description to give"))
+                .arg(arg!(-I --tui "Enters an interactive TUI to chat with chosen LLM"))
                 .arg(arg!(--sdk <SDK> "Updates the chosen LLM sdk (e.g, 'claude')"))
                 .arg(arg!(--key <KEY> "Updates the API key for the chosen LLM"))
-                .arg(arg!(--tui "Enters a TUI to chat with chosen LLM"))
                 .arg(arg!(-s --stash "The prompt/desc is from stash"))
                 .arg(arg!(-q --quest "The prompt/desc is related to a specific set of test cases"))
                 .arg(arg!(-f --file "The prompt/desc is in a file"))
-                .arg(arg!(-R --forget "Forget chat history after each prompt"))
+                .arg(arg!(-F --forget "Forget chat history after each prompt"))
                 .arg(arg!(-d --def "Use the default prompt"))
                 .arg(arg!(-D --debug "Prompt for debugging help"))
                 .arg(arg!(-x --explain "Prompt for help with the problem description"))
@@ -167,22 +172,22 @@ fn cli() -> Command {
         )
         .subcommand(
             Command::new("show")
-                .about("prints the input(s) or answer(s) to the test cases")
+                .about("prints test input/expected or stashed files")
                 .arg(arg!([NAME] "The name of the quest/solution/program/prompt"))
+                .arg(arg!(-I --tui "Show the file in a TUI (redirects to list if no other args are provided)"))
                 .arg(arg!(-t --test <TEST> "The specific test to print by name"))
-                .arg(arg!(-C --case <CASE> "The specific test to print by case number"))
+                .arg(arg!(-c --case <CASE> "The specific test to print by case number"))
                 .arg(arg!(-r --rand "Print a random test case"))
                 .arg(arg!(-a --ans "Print the answer instead of the input"))
                 .arg(arg!(-p --program "Show a stashed program instead of a test case"))
                 .arg(arg!(-P --prompt "Show a stashed prompt instead of a test case"))
                 .arg(arg!(-m --manifest "Show the manifest"))
-                .arg(arg!(--tui "Show the file in a TUI"))
                 .arg_required_else_help(true),
         )
         .subcommand(
             Command::new("stash")
-                .about("stashes the program/prompt away for later")
-                .arg(arg!(<PROG> "The program/prompt to stash"))
+                .about("stashes the program/prompt/file away for later")
+                .arg(arg!(<PROG> "The program/prompt/file to stash"))
                 .arg(arg!(-T --templ "Stashes the program away as a template"))
                 .arg(arg!(-P --prompt "Stashes the file away as a prompt"))
                 .arg_required_else_help(true),
@@ -212,15 +217,20 @@ async fn main() {
             let name = sub_matches.get_one::<String>("NAME").expect("required");
             let uri_str = sub_matches.get_one::<String>("URI").expect("required");
             let and_fetch = sub_matches.get_one::<bool>("fetch").is_some_and(|&f| f);
-            let is_manif = sub_matches.get_one::<bool>("manifest").is_some_and(|&f| f);
+            let is_extension = sub_matches.get_one::<bool>("ext").is_some_and(|&f| f);
+            let is_prompt = sub_matches.get_one::<bool>("prompt").is_some_and(|&f| f);
 
             let uri = Uri::try_from(uri_str.as_str()).expect("provided URI is valid");
 
-            if is_manif {
-                if let Err(e) = owl_core::add_extension(name, &uri, and_fetch).await {
-                    report_owl_err!(e);
-                }
-            } else if let Err(e) = owl_core::add_quest(name, &uri, and_fetch).await {
+            let action = if is_extension {
+                owl_core::add_extension(name, &uri, and_fetch).await
+            } else if is_prompt {
+                owl_core::add_prompt(name, &uri, and_fetch).await
+            } else {
+                owl_core::add_quest(name, &uri, and_fetch).await
+            };
+
+            if let Err(e) = action {
                 report_owl_err!(e);
             }
         }
@@ -245,16 +255,6 @@ async fn main() {
                     Ok(owl_dir)
                 })
                 .and_then(|owl_dir| {
-                    let mut chat_dir = owl_dir.clone();
-                    chat_dir.push(CHAT_DIR);
-
-                    if (do_all || do_chat) && chat_dir.exists() {
-                        fs_utils::remove_path(&chat_dir)?;
-                    }
-
-                    Ok(owl_dir)
-                })
-                .and_then(|owl_dir| {
                     let mut stash_dir = owl_dir.clone();
                     stash_dir.push(STASH_DIR);
 
@@ -262,11 +262,20 @@ async fn main() {
                         fs_utils::remove_path(&stash_dir)?;
                     }
 
-                    Ok(owl_dir)
+                    Ok(stash_dir)
                 })
-                .and_then(|owl_dir| {
-                    let mut prompt_dir = owl_dir.clone();
-                    prompt_dir.push(STASH_DIR);
+                .and_then(|stash_dir| {
+                    let mut chat_dir = stash_dir.clone();
+                    chat_dir.push(CHAT_DIR);
+
+                    if !do_all && !do_stash && do_chat && chat_dir.exists() {
+                        fs_utils::remove_path(&chat_dir)?;
+                    }
+
+                    Ok(stash_dir)
+                })
+                .and_then(|stash_dir| {
+                    let mut prompt_dir = stash_dir.clone();
                     prompt_dir.push(PROMPT_DIR);
 
                     if !do_all && !do_stash && do_prompts && prompt_dir.exists() {
@@ -369,10 +378,18 @@ async fn main() {
         }
         Some(("list", sub_matches)) => {
             let start_from_root = sub_matches.get_one::<bool>("root").is_some_and(|&f| f);
+            let start_from_prompt = sub_matches.get_one::<bool>("prompt").is_some_and(|&f| f);
+            let start_from_chat = sub_matches.get_one::<bool>("chat").is_some_and(|&f| f);
             let use_tui = sub_matches.get_one::<bool>("tui").is_some_and(|&f| f);
 
             let target_dir = if start_from_root {
                 fs_utils::ensure_path_from_home(&[OWL_DIR], None).expect("owlgo dir exists")
+            } else if start_from_prompt {
+                fs_utils::ensure_path_from_home(&[OWL_DIR, STASH_DIR, PROMPT_DIR], None)
+                    .expect("prompt dir exists")
+            } else if start_from_chat {
+                fs_utils::ensure_path_from_home(&[OWL_DIR, STASH_DIR, CHAT_DIR], None)
+                    .expect("chat dir exists")
             } else {
                 fs_utils::ensure_path_from_home(&[OWL_DIR, STASH_DIR], None)
                     .expect("stash dir exists")
@@ -418,7 +435,7 @@ async fn main() {
                 .get_one::<String>("case")
                 .map(|s| s.parse::<usize>().expect("case argument is type usize"));
             let rand = sub_matches.get_one::<bool>("rand").is_some_and(|&f| f);
-            let use_hints = sub_matches.get_one::<bool>("hint").is_some_and(|&f| f);
+            let use_hints = sub_matches.get_one::<bool>("hints").is_some_and(|&f| f);
 
             if rand {
                 case = Some(rand::random::<u64>() as usize);
@@ -593,13 +610,13 @@ async fn main() {
                 let name = sub_matches.get_one::<String>("NAME").expect("required");
 
                 if let Some(test_name) = test {
-                    owl_core::show_test(name, test_name, show_ans).await
+                    owl_core::show_test(name, test_name, show_ans, use_tui).await
                 } else {
                     if rand {
                         case = Some(rand::random::<u64>() as usize);
                     }
 
-                    owl_core::show_quest(name, case, show_ans).await
+                    owl_core::show_quest(name, case, show_ans, use_tui).await
                 }
             };
 

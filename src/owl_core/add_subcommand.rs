@@ -12,7 +12,7 @@ pub async fn add_extension(ext_name: &str, ext_uri: &Uri, and_fetch: bool) -> Re
         toml_utils::read_toml(&manifest_path)?
     } else {
         TOML_TEMPLATE.parse::<DocumentMut>().map_err(|e| {
-            OwlError::TomlError("could not parse TOML template".into(), e.to_string())
+            OwlError::TomlError("Faild to parse TOML template".into(), e.to_string())
         })?
     };
 
@@ -20,7 +20,7 @@ pub async fn add_extension(ext_name: &str, ext_uri: &Uri, and_fetch: bool) -> Re
         Uri::Local(path) => {
             let uri_str = path
                 .to_str()
-                .ok_or(OwlError::UriError("invalid URI".into(), "".into()))?;
+                .ok_or(OwlError::UriError("Invalid URI".into(), "None".into()))?;
             (uri_str, toml_utils::read_toml(path)?)
         }
         Uri::Remote(url) => (url.as_str(), toml_utils::request_toml(url).await?),
@@ -46,6 +46,41 @@ pub async fn add_extension(ext_name: &str, ext_uri: &Uri, and_fetch: bool) -> Re
     .await
 }
 
+pub async fn add_prompt(prompt_name: &str, uri: &Uri, and_fetch: bool) -> Result<()> {
+    let manifest_path = fs_utils::ensure_path_from_home(&[OWL_DIR], Some(MANIFEST))?;
+
+    let mut manifest_doc = if manifest_path.exists() {
+        toml_utils::read_toml(&manifest_path)?
+    } else {
+        TOML_TEMPLATE.parse::<DocumentMut>().map_err(|e| {
+            OwlError::TomlError("Failed to parse TOML template".into(), e.to_string())
+        })?
+    };
+
+    let uri_str = match uri {
+        Uri::Local(path) => path
+            .to_str()
+            .ok_or(OwlError::UriError("Invalid URI".into(), "None".into()))?,
+        Uri::Remote(url) => url.as_str(),
+    };
+
+    manifest_doc["prompts"][prompt_name] = value(uri_str);
+
+    toml_utils::write_manifest(&manifest_doc, &manifest_path)?;
+
+    if and_fetch {
+        let prompt_dir =
+            fs_utils::ensure_path_from_home(&[OWL_DIR, STASH_DIR, PROMPT_DIR], Some(prompt_name))?;
+
+        match uri {
+            Uri::Local(path) => fs_utils::copy_file(path, &prompt_dir)?,
+            Uri::Remote(url) => fs_utils::download_file(url, &prompt_dir).await?,
+        }
+    }
+
+    Ok(())
+}
+
 pub async fn add_quest(quest_name: &str, uri: &Uri, and_fetch: bool) -> Result<()> {
     let manifest_path = fs_utils::ensure_path_from_home(&[OWL_DIR], Some(MANIFEST))?;
 
@@ -53,18 +88,18 @@ pub async fn add_quest(quest_name: &str, uri: &Uri, and_fetch: bool) -> Result<(
         toml_utils::read_toml(&manifest_path)?
     } else {
         TOML_TEMPLATE.parse::<DocumentMut>().map_err(|e| {
-            OwlError::TomlError("could not parse TOML template".into(), e.to_string())
+            OwlError::TomlError("Failed to parse TOML template".into(), e.to_string())
         })?
     };
 
     let uri_str = match uri {
         Uri::Local(path) => path
             .to_str()
-            .ok_or(OwlError::UriError("invalid URI".into(), "".into()))?,
+            .ok_or(OwlError::UriError("Invalid URI".into(), "None".into()))?,
         Uri::Remote(url) => url.as_str(),
     };
 
-    manifest_doc["personal"][quest_name] = value(uri_str);
+    manifest_doc["personal_quests"][quest_name] = value(uri_str);
 
     toml_utils::write_manifest(&manifest_doc, &manifest_path)?;
 

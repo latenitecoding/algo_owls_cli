@@ -109,13 +109,13 @@ pub async fn review_program(
         }
     };
 
-    let mut chat_path = fs_utils::ensure_path_from_home(&[OWL_DIR, CHAT_DIR], None)?;
-
     let now: DateTime<Local> = Local::now();
     let timestamp = now.format("%Y-%m-%d-%H-%M-%S").to_string();
 
     let chat_file_stem = format!("{}_{}.md", ai_sdk, timestamp);
-    chat_path.push(&chat_file_stem);
+
+    let chat_path =
+        fs_utils::ensure_path_from_home(&[OWL_DIR, STASH_DIR, CHAT_DIR], Some(&chat_file_stem))?;
 
     let mut chat_file = OpenOptions::new()
         .create(true)

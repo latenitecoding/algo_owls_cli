@@ -40,7 +40,7 @@ pub async fn fetch_extension(ext_name: &str) -> Result<()> {
 
     let tmp_archive = Path::new(TMP_ARCHIVE);
 
-    if let Some(personal_table) = ext_doc["personal"].as_table() {
+    if let Some(personal_table) = ext_doc["personal_quests"].as_table() {
         let mut quest_path = manifest_path
             .parent()
             .expect("owlgo directory to exist")
@@ -146,7 +146,7 @@ pub async fn fetch_quest(quest_name: &str) -> Result<()> {
     }
 
     let manifest_doc = toml_utils::read_toml(&manifest_path)?;
-    let quest_entry = manifest_doc["personal"]
+    let quest_entry = manifest_doc["personal_quests"]
         .get(quest_name)
         .or(manifest_doc["quests"].get(quest_name));
 

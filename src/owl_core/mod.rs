@@ -9,7 +9,7 @@ pub mod show_subcommand;
 pub mod stash_subcommand;
 pub mod test_subcommand;
 
-pub use add_subcommand::{add_extension, add_quest};
+pub use add_subcommand::{add_extension, add_prompt, add_quest};
 pub use clear_subcommand::{clear_programs, clear_quests};
 pub use fetch_subcommand::{fetch_extension, fetch_prompt, fetch_quest};
 pub use git_subcommand::{push_git_remote, set_git_remote, sync_git_remote};

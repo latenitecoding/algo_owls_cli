@@ -1,7 +1,6 @@
 use crate::OWL_DIR;
 use crate::common::{OwlError, Result};
-use crate::owl_utils::cmd_utils;
-use crate::owl_utils::fs_utils;
+use crate::owl_utils::{FileApp, FileExplorerApp, cmd_utils, fs_utils, tui_utils};
 use std::fs;
 use std::path::Path;
 
@@ -33,11 +32,25 @@ pub fn show_it(target_path: &Path) -> Result<()> {
     })
 }
 
-pub async fn show_quest(quest_name: &str, case_id: Option<usize>, show_ans: bool) -> Result<()> {
+pub async fn show_quest(
+    quest_name: &str,
+    case_id: Option<usize>,
+    show_ans: bool,
+    use_tui: bool,
+) -> Result<()> {
     let quest_path = fs_utils::ensure_path_from_home(&[OWL_DIR], Some(quest_name))?;
 
     if !quest_path.exists() {
         super::fetch_quest(quest_name).await?;
+    }
+
+    if use_tui && case_id.is_none() {
+        return tui_utils::enter_raw_mode().and_then(|_| {
+            match FileExplorerApp::default().run(&quest_path) {
+                Ok(_) => tui_utils::exit_raw_mode(),
+                Err(e) => tui_utils::exit_raw_mode().and(Err(e)),
+            }
+        });
     }
 
     let test_cases = if show_ans {
@@ -49,7 +62,14 @@ pub async fn show_quest(quest_name: &str, case_id: Option<usize>, show_ans: bool
     if let Some(case_number) = case_id {
         let test_case = &test_cases[(case_number + 1) % test_cases.len()];
 
-        show_it(test_case)
+        if use_tui {
+            tui_utils::enter_raw_mode().and_then(|_| match FileApp::default().run(test_case) {
+                Ok(_) => tui_utils::exit_raw_mode(),
+                Err(e) => tui_utils::exit_raw_mode().and(Err(e)),
+            })
+        } else {
+            show_it(test_case)
+        }
     } else {
         for test_case in test_cases {
             show_it(&test_case)?;
@@ -59,7 +79,12 @@ pub async fn show_quest(quest_name: &str, case_id: Option<usize>, show_ans: bool
     }
 }
 
-pub async fn show_test(quest_name: &str, test_name: &str, show_ans: bool) -> Result<()> {
+pub async fn show_test(
+    quest_name: &str,
+    test_name: &str,
+    show_ans: bool,
+    use_tui: bool,
+) -> Result<()> {
     let quest_path = fs_utils::ensure_path_from_home(&[OWL_DIR], Some(quest_name))?;
 
     if !quest_path.exists() {
@@ -72,5 +97,12 @@ pub async fn show_test(quest_name: &str, test_name: &str, show_ans: bool) -> Res
         fs_utils::find_by_stem_and_ext(&quest_path, test_name, "in")?
     };
 
-    show_it(&test_case)
+    if use_tui {
+        tui_utils::enter_raw_mode().and_then(|_| match FileApp::default().run(&test_case) {
+            Ok(_) => tui_utils::exit_raw_mode(),
+            Err(e) => tui_utils::exit_raw_mode().and(Err(e)),
+        })
+    } else {
+        show_it(&test_case)
+    }
 }

@@ -28,7 +28,7 @@ pub fn clear_programs() -> Result<()> {
                 "".into(),
             ))?;
 
-        if path.is_dir() && (stem == PROMPT_DIR || stem == GIT_DIR) {
+        if path.is_dir() && (stem == CHAT_DIR || stem == GIT_DIR || stem == PROMPT_DIR) {
             continue;
         }
 
@@ -62,7 +62,9 @@ pub fn clear_quests() -> Result<()> {
                 "".into(),
             ))?;
 
-        if path.is_file() || (stem == CHAT_DIR || stem == STASH_DIR) {
+        if path.is_file()
+            || (stem == CHAT_DIR || stem == GIT_DIR || stem == PROMPT_DIR || stem == STASH_DIR)
+        {
             continue;
         }
 

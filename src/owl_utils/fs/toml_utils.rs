@@ -51,14 +51,14 @@ pub async fn commit_doc(
     local_doc: &mut DocumentMut,
     and_fetch_to_tmp: Option<&Path>,
 ) -> Result<()> {
-    if let Some(personal_table) = remote_doc["personal"].as_table() {
+    if let Some(personal_table) = remote_doc["personal_quests"].as_table() {
         let mut quest_path = manifest_path
             .parent()
             .expect("manifest file to have parent owlgo directory")
             .to_path_buf();
 
         for (quest_name, quest_uri) in personal_table.iter() {
-            local_doc["personal"][quest_name] = quest_uri.clone();
+            local_doc["personal_quests"][quest_name] = quest_uri.clone();
 
             if let Some(tmp_archive) = and_fetch_to_tmp {
                 quest_path.push(quest_name);
@@ -349,7 +349,7 @@ pub async fn update_extensions(
     if let Some(ext_table) = manifest_doc["extensions"].as_table() {
         let mut tmp_doc = DocumentMut::new();
         tmp_doc["extensions"] = Table::new().into();
-        tmp_doc["personal"] = Table::new().into();
+        tmp_doc["personal_quests"] = Table::new().into();
         tmp_doc["prompts"] = Table::new().into();
 
         for (ext_name, ext_timestamp) in ext_table.iter() {
@@ -411,9 +411,9 @@ pub async fn update_extensions(
             }
         }
 
-        if let Some(tmp_personal_table) = tmp_doc["personal"].as_table() {
+        if let Some(tmp_personal_table) = tmp_doc["personal_quests"].as_table() {
             for (key, item) in tmp_personal_table.iter() {
-                manifest_doc["personal"][key] = item.clone();
+                manifest_doc["personal_quests"][key] = item.clone();
             }
         }
 
