@@ -1,5 +1,5 @@
 use crate::common::{OwlError, Result};
-use crate::owl_utils::{PromptMode, cmd_utils, fs_utils, llm_utils};
+use crate::owl_utils::{LlmApp, PromptMode, cmd_utils, fs_utils, llm_utils};
 use crate::{CHAT_DIR, MANIFEST, OWL_DIR, PROMPT_DIR, PROMPT_FILE, STASH_DIR};
 use chrono::{DateTime, Local};
 use std::fs::{self, OpenOptions};
@@ -8,7 +8,7 @@ use std::path::Path;
 
 pub async fn review_program(
     prog: &Path,
-    prompt: Option<String>,
+    check_prompt: Option<String>,
     in_stash: bool,
     in_quest: bool,
     is_file: bool,
@@ -33,7 +33,7 @@ pub async fn review_program(
         )
     })?;
 
-    let prompt_str = match prompt {
+    let check_prompt = match check_prompt {
         Some(prompt_entry) => {
             if is_file {
                 let prompt_str = fs::read_to_string(Path::new(&prompt_entry)).map_err(|e| {
@@ -79,8 +79,31 @@ pub async fn review_program(
         None => None,
     };
 
-    let (ai_sdk, response) =
-        llm_utils::llm_review(&manifest_path, &prog_str, mode, prompt_str).await?;
+    let (ai_sdk, client) = llm_utils::try_llm_client(&manifest_path)?;
+
+    let response = match mode {
+        PromptMode::Chat => {
+            LlmApp::default()
+                .run(
+                    &ai_sdk,
+                    &client,
+                    Some(&prog_str),
+                    check_prompt.as_deref(),
+                    mode,
+                )
+                .await?
+        }
+        _ => {
+            llm_utils::llm_review_with_client(
+                &ai_sdk,
+                &client,
+                Some(&prog_str),
+                check_prompt.as_deref(),
+                mode,
+            )
+            .await?
+        }
+    };
 
     let mut chat_path = fs_utils::ensure_path_from_home(&[OWL_DIR, CHAT_DIR], None)?;
 

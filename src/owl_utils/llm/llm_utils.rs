@@ -4,6 +4,7 @@ use std::path::Path;
 
 #[derive(Debug, PartialEq)]
 pub enum PromptMode {
+    Chat,
     Custom,
     Debug,
     Default,
@@ -78,12 +79,109 @@ Include tests for:
 All inputs will be valid. Please explain your reasoning for each suggestion.
 "#;
 
-pub async fn llm_review(
-    manifest_path: &Path,
-    prog_str: &str,
+pub async fn llm_reply_with_client(
+    ai_sdk: &str,
+    client: &Anthropic,
+    user_reply: &str,
+    chat_ctx: &str,
+) -> Result<String> {
+    let response = client
+        .messages()
+        .create(
+            MessageCreateBuilder::new("claude-sonnet-4-5", 1024)
+                .user(user_reply)
+                .assistant(chat_ctx)
+                .build(),
+        )
+        .await
+        .map_err(|e| {
+            OwlError::LlmError(
+                format!("Failed to send prompt to '{}' for review", ai_sdk),
+                e.to_string(),
+            )
+        })?;
+
+    let mut buffer = String::new();
+    for content_block in response.content {
+        if let ContentBlock::Text { text } = content_block {
+            buffer.push_str(&format!("\n{}: ", ai_sdk));
+            buffer.push_str(&text);
+        }
+    }
+
+    Ok(buffer)
+}
+
+pub async fn llm_review_with_client(
+    ai_sdk: &str,
+    client: &Anthropic,
+    check_prog: Option<&str>,
+    check_prompt: Option<&str>,
     mode: PromptMode,
-    prompt_str: Option<String>,
-) -> Result<(String, String)> {
+) -> Result<String> {
+    let suggested_prompt = check_prog.map(|prog_str| match mode {
+        PromptMode::Debug => DEBUG_PROMPT.replace(PLACEHOLDER, prog_str),
+        PromptMode::Explain => EXPLAIN_PROMPT.replace(PLACEHOLDER, prog_str),
+        PromptMode::Explore => EXPLORE_PROMPT.replace(PLACEHOLDER, prog_str),
+        PromptMode::Optimize => OPT_PROMPT.replace(PLACEHOLDER, prog_str),
+        PromptMode::Test => TEST_PROMPT.replace(PLACEHOLDER, prog_str),
+        _ => DEFAULT_PROMPT.replace(PLACEHOLDER, prog_str),
+    });
+
+    let user_prompt = check_prompt
+        .map(|prompt_str| {
+            if mode == PromptMode::Chat {
+                prompt_str.to_string()
+            } else if mode == PromptMode::Custom
+                && let Some(prog_str) = check_prog
+            {
+                if prompt_str.contains(PLACEHOLDER) {
+                    prompt_str.replace(PLACEHOLDER, prog_str)
+                } else {
+                    format!(
+                        "Hello! Please review the following code: {}\n{}",
+                        prog_str, prompt_str
+                    )
+                }
+            } else if let Some(text) = &suggested_prompt {
+                format!("{}\n{}", DESC_PROMPT.replace(PLACEHOLDER, prompt_str), text)
+            } else {
+                DESC_PROMPT.replace(PLACEHOLDER, prompt_str)
+            }
+        })
+        .or(suggested_prompt)
+        .ok_or(OwlError::TuiError(
+            "No user prompt or suggested prompt provided".into(),
+            "None".into(),
+        ))?;
+
+    let response = client
+        .messages()
+        .create(
+            MessageCreateBuilder::new("claude-sonnet-4-5", 1024)
+                .user(user_prompt)
+                .build(),
+        )
+        .await
+        .map_err(|e| {
+            OwlError::LlmError(
+                format!("Failed to send prompt to '{}' for review", ai_sdk),
+                e.to_string(),
+            )
+        })?;
+
+    let mut buffer = String::new();
+    for content_block in response.content {
+        if let ContentBlock::Text { text } = content_block {
+            buffer.push_str(&format!("\n{}: ", ai_sdk));
+            buffer.push_str(&text);
+        }
+    }
+
+    Ok(buffer)
+}
+
+pub fn try_llm_client(manifest_path: &Path) -> Result<(String, Anthropic)> {
     let (ai_sdk, api_key) = toml_utils::get_manifest_ai_sdk(manifest_path)?;
 
     if ai_sdk.is_empty() {
@@ -117,58 +215,5 @@ pub async fn llm_review(
         )
     })?;
 
-    let suggested_prompt = match mode {
-        PromptMode::Debug => DEBUG_PROMPT.replace(PLACEHOLDER, prog_str),
-        PromptMode::Explain => EXPLAIN_PROMPT.replace(PLACEHOLDER, prog_str),
-        PromptMode::Explore => EXPLORE_PROMPT.replace(PLACEHOLDER, prog_str),
-        PromptMode::Optimize => OPT_PROMPT.replace(PLACEHOLDER, prog_str),
-        PromptMode::Test => TEST_PROMPT.replace(PLACEHOLDER, prog_str),
-        _ => DEFAULT_PROMPT.replace(PLACEHOLDER, prog_str),
-    };
-
-    let user_prompt = if let Some(text) = prompt_str {
-        if mode == PromptMode::Custom {
-            if text.contains(PLACEHOLDER) {
-                text.replace(PLACEHOLDER, prog_str)
-            } else {
-                format!(
-                    "Hello! Please review the following code: {}\n{}",
-                    prog_str, text
-                )
-            }
-        } else {
-            format!(
-                "{}\n{}",
-                DESC_PROMPT.replace(PLACEHOLDER, &text),
-                suggested_prompt
-            )
-        }
-    } else {
-        suggested_prompt
-    };
-
-    let response = client
-        .messages()
-        .create(
-            MessageCreateBuilder::new("claude-sonnet-4-5", 1024)
-                .user(user_prompt)
-                .build(),
-        )
-        .await
-        .map_err(|e| {
-            OwlError::LlmError(
-                format!("Failed to send prompt to '{}' for review", ai_sdk),
-                e.to_string(),
-            )
-        })?;
-
-    let mut buffer = String::new();
-    for content_block in response.content {
-        if let ContentBlock::Text { text } = content_block {
-            buffer.push_str(&format!("\n{}: ", ai_sdk));
-            buffer.push_str(&text);
-        }
-    }
-
-    Ok((ai_sdk, buffer))
+    Ok((ai_sdk, client))
 }

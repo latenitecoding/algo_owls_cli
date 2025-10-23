@@ -142,6 +142,7 @@ fn cli() -> Command {
                 .arg(arg!([PROMPT] "The prompt or description to give"))
                 .arg(arg!(--sdk <SDK> "Updates the chosen LLM sdk (e.g, 'claude')"))
                 .arg(arg!(--key <KEY> "Updates the API key for the chosen LLM"))
+                .arg(arg!(--tui "Enters a TUI to chat with chosen LLM"))
                 .arg(arg!(-s --stash "The prompt/desc is from stash"))
                 .arg(arg!(-q --quest "The prompt/desc is related to a specific set of test cases"))
                 .arg(arg!(-f --file "The prompt/desc is in a file"))
@@ -453,6 +454,7 @@ async fn main() {
                 .map(String::to_owned);
             let ai_sdk = sub_matches.get_one::<String>("sdk");
             let api_key = sub_matches.get_one::<String>("key");
+            let use_tui = sub_matches.get_one::<bool>("tui").is_some_and(|&f| f);
             let in_stash = sub_matches.get_one::<bool>("file").is_some_and(|&f| f);
             let in_quest = sub_matches.get_one::<bool>("file").is_some_and(|&f| f);
             let is_file = sub_matches.get_one::<bool>("file").is_some_and(|&f| f);
@@ -507,6 +509,8 @@ async fn main() {
                 PromptMode::Optimize
             } else if use_test {
                 PromptMode::Test
+            } else if use_tui {
+                PromptMode::Chat
             } else if prompt.is_some() && !use_default {
                 PromptMode::Custom
             } else {
