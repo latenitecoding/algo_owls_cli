@@ -1682,6 +1682,7 @@ dependencies = [
  "color-eyre",
  "crossterm 0.29.0",
  "dirs",
+ "futures",
  "itertools 0.14.0",
  "pulldown-cmark",
  "rand 0.9.2",

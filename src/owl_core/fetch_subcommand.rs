@@ -1,6 +1,7 @@
 use crate::common::{OwlError, Result};
 use crate::owl_utils::{Uri, fs_utils, toml_utils};
 use crate::{MANIFEST, OWL_DIR, PROMPT_DIR, STASH_DIR, TMP_ARCHIVE};
+use futures::prelude::*;
 use std::path::Path;
 
 pub async fn fetch_extension(ext_name: &str) -> Result<()> {
@@ -46,15 +47,16 @@ pub async fn fetch_extension(ext_name: &str) -> Result<()> {
         }
     };
 
+    let owl_path = manifest_path.parent().expect("owlgo directory to exist");
+
     let tmp_archive = Path::new(TMP_ARCHIVE);
 
-    if let Some(quests_table) = ext_doc["quests"].as_table() {
-        let mut quest_path = manifest_path
-            .parent()
-            .expect("owlgo directory to exist")
-            .to_path_buf();
-
-        for (quest_name, quest_uri) in quests_table.iter() {
+    let quest_futures = ext_doc["quests"]
+        .as_table()
+        .into_iter()
+        .flat_map(|quests_table| quests_table.iter())
+        .map(|(quest_name, quest_uri)| async move {
+            let mut quest_path = owl_path.to_path_buf();
             quest_path.push(quest_name);
 
             let quest_uri_str = quest_uri.as_str().ok_or(OwlError::TomlError(
@@ -69,24 +71,25 @@ pub async fn fetch_extension(ext_name: &str) -> Result<()> {
                         quest_name,
                         path.to_string_lossy()
                     );
-                    fs_utils::extract_archive(&path, tmp_archive)?;
-                    fs_utils::remove_path(tmp_archive)?
+                    fs_utils::extract_archive(&path, tmp_archive, true).await
                 }
                 Uri::Remote(url) => {
                     eprintln!("downloading quest '{}' from '{}'", quest_name, url);
-                    fs_utils::download_archive(&url, tmp_archive, &quest_path).await?
+                    fs_utils::download_archive(&url, tmp_archive, &quest_path).await
                 }
-            };
+            }
+        });
 
-            quest_path.pop();
-        }
-    }
+    let prompt_futures = ext_doc["prompts"]
+        .as_table()
+        .into_iter()
+        .flat_map(|prompts_table| prompts_table.iter())
+        .map(|(prompt_name, prompt_uri)| async move {
+            let mut prompt_path = owl_path.to_path_buf();
+            prompt_path.push(STASH_DIR);
+            prompt_path.push(PROMPT_DIR);
+            prompt_path.push(prompt_name);
 
-    if let Some(prompt_table) = ext_doc["prompts"].as_table() {
-        let mut prompt_path =
-            fs_utils::ensure_path_from_home(&[OWL_DIR, STASH_DIR, PROMPT_DIR], None)?;
-
-        for (prompt_name, prompt_uri) in prompt_table.iter() {
             let prompt_uri_str = prompt_uri.as_str().ok_or(OwlError::TomlError(
                 format!(
                     "Invalid entry '{}' in extension '{}'",
@@ -95,8 +98,6 @@ pub async fn fetch_extension(ext_name: &str) -> Result<()> {
                 "None".into(),
             ))?;
 
-            prompt_path.push(prompt_name);
-
             match Uri::try_from(prompt_uri_str)? {
                 Uri::Local(path) => {
                     eprintln!(
@@ -104,16 +105,24 @@ pub async fn fetch_extension(ext_name: &str) -> Result<()> {
                         prompt_name,
                         path.to_string_lossy()
                     );
-                    fs_utils::copy_file(&path, &prompt_path)?
+                    fs_utils::copy_file_async(&path, &prompt_path).await
                 }
                 Uri::Remote(url) => {
                     eprintln!("downloading prompt '{}' from '{}'", prompt_name, url);
-                    fs_utils::download_file(&url, &prompt_path).await?
+                    fs_utils::download_file(&url, &prompt_path).await
                 }
-            };
+            }
+        });
 
-            prompt_path.pop();
-        }
+    let quest_stream = futures::stream::iter(quest_futures).buffer_unordered(8);
+    let prompt_stream = futures::stream::iter(prompt_futures).buffer_unordered(8);
+
+    for result in quest_stream.collect::<Vec<_>>().await {
+        result?;
+    }
+
+    for result in prompt_stream.collect::<Vec<_>>().await {
+        result?;
     }
 
     Ok(())
@@ -192,7 +201,7 @@ pub async fn fetch_quest(quest_name: &str) -> Result<()> {
     };
 
     match uri {
-        Uri::Local(path) => fs_utils::extract_archive(&path, &quest_dir),
+        Uri::Local(path) => fs_utils::extract_archive(&path, &quest_dir, false).await,
         Uri::Remote(url) => {
             fs_utils::download_archive(&url, Path::new(TMP_ARCHIVE), &quest_dir).await
         }

@@ -107,7 +107,7 @@ pub async fn add_quest(quest_name: &str, uri: &Uri, and_fetch: bool) -> Result<(
         let quest_dir = fs_utils::ensure_path_from_home(&[OWL_DIR], Some(quest_name))?;
 
         match uri {
-            Uri::Local(path) => fs_utils::extract_archive(path, &quest_dir)?,
+            Uri::Local(path) => fs_utils::extract_archive(path, &quest_dir, false).await?,
             Uri::Remote(url) => {
                 fs_utils::download_archive(url, Path::new(TMP_ARCHIVE), &quest_dir).await?
             }

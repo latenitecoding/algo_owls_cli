@@ -39,6 +39,39 @@ pub fn copy_file(src: &Path, dst: &Path) -> Result<()> {
 
     Ok(())
 }
+pub async fn copy_file_async(src: &Path, dst: &Path) -> Result<()> {
+    let mut src_file = OpenOptions::new().read(true).open(src).map_err(|e| {
+        OwlError::FileError(
+            format!("Failed to open '{}' for reading", src.to_string_lossy()),
+            e.to_string(),
+        )
+    })?;
+
+    let mut dst_file = OpenOptions::new()
+        .create(true)
+        .truncate(true)
+        .write(true)
+        .open(dst)
+        .map_err(|e| {
+            OwlError::FileError(
+                format!("Failed to truncate '{}' for writing", dst.to_string_lossy()),
+                e.to_string(),
+            )
+        })?;
+
+    copy(&mut src_file, &mut dst_file).map_err(|e| {
+        OwlError::FileError(
+            format!(
+                "Failed to copy '{}' into '{}'",
+                src.to_string_lossy(),
+                dst.to_string_lossy()
+            ),
+            e.to_string(),
+        )
+    })?;
+
+    Ok(())
+}
 
 pub fn dir_tree(root_dir: &Path) -> Result<Vec<PathBuf>> {
     if !root_dir.exists() {
@@ -95,8 +128,7 @@ pub fn dir_tree(root_dir: &Path) -> Result<Vec<PathBuf>> {
 
 pub async fn download_archive(url: &Url, tmp_archive: &Path, out_dir: &Path) -> Result<()> {
     download_file(url, tmp_archive).await?;
-    extract_archive(tmp_archive, out_dir)?;
-    remove_path(tmp_archive)
+    extract_archive(tmp_archive, out_dir, true).await
 }
 
 pub async fn download_file(url: &Url, out: &Path) -> Result<()> {
@@ -166,7 +198,11 @@ pub fn ensure_path_from_home(dirs: &[&str], file_str: Option<&str>) -> Result<Pa
     Ok(path)
 }
 
-pub fn extract_archive(archive_file: &Path, out_dir: &Path) -> Result<()> {
+pub async fn extract_archive(
+    archive_file: &Path,
+    out_dir: &Path,
+    remove_archive: bool,
+) -> Result<()> {
     let zip_file = OpenOptions::new()
         .read(true)
         .open(archive_file)
@@ -212,6 +248,10 @@ pub fn extract_archive(archive_file: &Path, out_dir: &Path) -> Result<()> {
             e.to_string(),
         )
     })?;
+
+    if remove_archive {
+        remove_path(archive_file)?;
+    }
 
     Ok(())
 }

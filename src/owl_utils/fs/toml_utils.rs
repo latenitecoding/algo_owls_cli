@@ -73,8 +73,7 @@ pub async fn commit_doc(
 
                 match Uri::try_from(quest_uri_str)? {
                     Uri::Local(path) => {
-                        fs_utils::extract_archive(&path, tmp_archive)?;
-                        fs_utils::remove_path(tmp_archive)?
+                        fs_utils::extract_archive(&path, tmp_archive, true).await?;
                     }
                     Uri::Remote(url) => {
                         fs_utils::download_archive(&url, tmp_archive, &quest_path).await?
