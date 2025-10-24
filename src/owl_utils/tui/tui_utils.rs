@@ -151,7 +151,7 @@ impl FileApp {
                                     .borders(Borders::ALL)
                                     .border_type(BorderType::Double),
                             )
-                            .wrap(Wrap { trim: true })
+                            .wrap(Wrap { trim: false })
                             .scroll((self.vertical_scroll as u16, 0))
                     } else if should_use_syntax_highlighting
                         && let Ok(text) = file_content.into_text()
@@ -162,7 +162,7 @@ impl FileApp {
                                     .borders(Borders::ALL)
                                     .border_type(BorderType::Double),
                             )
-                            .wrap(Wrap { trim: true })
+                            .wrap(Wrap { trim: false })
                             .scroll((self.vertical_scroll as u16, 0))
                     } else {
                         Paragraph::new(file_content)
@@ -319,7 +319,7 @@ impl FileExplorerApp {
                                     .borders(Borders::ALL)
                                     .border_type(BorderType::Double),
                             )
-                            .wrap(Wrap { trim: true })
+                            .wrap(Wrap { trim: false })
                             .scroll((self.vertical_scroll as u16, 0))
                     } else if should_use_syntax_highlighting
                         && let Ok(text) = file_content.into_text()
@@ -330,7 +330,7 @@ impl FileExplorerApp {
                                     .borders(Borders::ALL)
                                     .border_type(BorderType::Double),
                             )
-                            .wrap(Wrap { trim: true })
+                            .wrap(Wrap { trim: false })
                             .scroll((self.vertical_scroll as u16, 0))
                     } else {
                         Paragraph::new(file_content)
@@ -441,7 +441,7 @@ impl LlmApp {
                         .borders(Borders::ALL)
                         .border_type(BorderType::Double),
                 )
-                .wrap(Wrap { trim: true })
+                .wrap(Wrap { trim: false })
                 .scroll((self.vertical_scroll as u16, 0)),
             chunks[1],
         );

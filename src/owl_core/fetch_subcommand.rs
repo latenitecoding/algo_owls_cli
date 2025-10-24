@@ -42,7 +42,7 @@ pub async fn fetch_extension(ext_name: &str) -> Result<()> {
             toml_utils::read_toml(&path)?
         }
         Uri::Remote(url) => {
-            eprintln!("requesting extension '{}' from '{}'", ext_name, url);
+            eprintln!(">>> requesting extension '{}' from '{}' ...", ext_name, url);
             toml_utils::request_toml(&url).await?
         }
     };
@@ -67,14 +67,14 @@ pub async fn fetch_extension(ext_name: &str) -> Result<()> {
             match Uri::try_from(quest_uri_str)? {
                 Uri::Local(path) => {
                     eprintln!(
-                        "extracting quest '{}' at '{}'",
+                        ">>> extracting quest '{}' at '{}' ...",
                         quest_name,
                         path.to_string_lossy()
                     );
                     fs_utils::extract_archive(&path, tmp_archive, true).await
                 }
                 Uri::Remote(url) => {
-                    eprintln!("downloading quest '{}' from '{}'", quest_name, url);
+                    eprintln!(">>> downloading quest '{}' from '{}' ...", quest_name, url);
                     fs_utils::download_archive(&url, tmp_archive, &quest_path).await
                 }
             }
@@ -101,14 +101,17 @@ pub async fn fetch_extension(ext_name: &str) -> Result<()> {
             match Uri::try_from(prompt_uri_str)? {
                 Uri::Local(path) => {
                     eprintln!(
-                        "copying prompt '{}' from '{}'",
+                        ">>> copying prompt '{}' from '{}' ...",
                         prompt_name,
                         path.to_string_lossy()
                     );
                     fs_utils::copy_file_async(&path, &prompt_path).await
                 }
                 Uri::Remote(url) => {
-                    eprintln!("downloading prompt '{}' from '{}'", prompt_name, url);
+                    eprintln!(
+                        ">>> downloading prompt '{}' from '{}' ...",
+                        prompt_name, url
+                    );
                     fs_utils::download_file(&url, &prompt_path).await
                 }
             }

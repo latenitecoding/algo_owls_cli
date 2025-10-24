@@ -828,7 +828,7 @@ async fn main() {
         }
         Some(("stash", sub_matches)) => {
             let prog = sub_matches.get_one::<String>("PROG").expect("required");
-            let is_templ = sub_matches.get_one::<bool>("templ").is_some_and(|&f| f);
+            let is_templ = sub_matches.get_one::<bool>("template").is_some_and(|&f| f);
             let is_prompt = sub_matches.get_one::<bool>("prompt").is_some_and(|&f| f);
 
             if let Err(e) = owl_core::stash_file(Path::new(prog), is_templ, is_prompt) {
