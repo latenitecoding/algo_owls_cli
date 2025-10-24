@@ -5,7 +5,7 @@ use std::cmp::Ordering;
 use std::fs::{self, File, OpenOptions};
 use std::io::{BufRead, BufReader, BufWriter, Write};
 use std::path::Path;
-use toml_edit::{DocumentMut, Table, value};
+use toml_edit::{DocumentMut, Item, Table, value};
 use url::Url;
 
 pub async fn check_updates(
@@ -127,14 +127,13 @@ pub async fn commit_extension(
 ) -> Result<()> {
     manifest_doc["extensions"][ext_name] = ext_doc["manifest"]["timestamp"].clone();
 
-    let ext_uri_key = format!("{}.uri", ext_name);
     match ext_uri {
         Uri::Local(ext_path) => {
-            manifest_doc["ext_uri"][ext_uri_key] = value(ext_path.to_str().ok_or(
+            manifest_doc["ext_uri"][ext_name] = value(ext_path.to_str().ok_or(
                 OwlError::FileError("Invalid extension path".into(), "None".into()),
             )?)
         }
-        Uri::Remote(ext_url) => manifest_doc["ext_uri"][ext_uri_key] = value(ext_url.as_str()),
+        Uri::Remote(ext_url) => manifest_doc["ext_uri"][ext_name] = value(ext_url.as_str()),
     }
 
     commit_doc(
@@ -346,25 +345,29 @@ pub async fn update_extensions(
     manifest_doc: &mut DocumentMut,
     and_fetch_to_tmp: &Path,
 ) -> Result<()> {
-    if let Some(ext_table) = manifest_doc["extensions"].as_table() {
+    if let Some(ext_table) = manifest_doc.get("extensions").and_then(Item::as_table) {
         let mut tmp_doc = DocumentMut::new();
         tmp_doc["extensions"] = Table::new().into();
         tmp_doc["prompts"] = Table::new().into();
         tmp_doc["quests"] = Table::new().into();
 
         for (ext_name, ext_timestamp) in ext_table.iter() {
-            let ext_uri_key = format!("{}.uri", ext_name);
-
-            let ext_uri_str =
-                ext_table["ext_uri"][&ext_uri_key]
-                    .as_str()
-                    .ok_or(OwlError::TomlError(
-                        format!(
-                            "Invalid entry for '{}' in table 'ext_uri' in extension '{}'",
-                            ext_uri_key, ext_name
-                        ),
-                        "None".into(),
-                    ))?;
+            let ext_uri_str = manifest_doc
+                .get("ext_uri")
+                .and_then(Item::as_table)
+                .ok_or(OwlError::TomlError(
+                    "Invalid table 'ext_uri' in manifest".into(),
+                    "None".into(),
+                ))?
+                .get(ext_name)
+                .and_then(|item| item.as_str())
+                .ok_or(OwlError::TomlError(
+                    format!(
+                        "Invalid entry for '{}' in table 'ext_uri' in manifest",
+                        ext_name
+                    ),
+                    "None".into(),
+                ))?;
 
             let remote_doc = match Uri::try_from(ext_uri_str)? {
                 Uri::Local(path) => read_toml(&path)?,
@@ -435,12 +438,12 @@ pub async fn update_manifest(
     tmp_archive: &Path,
 ) -> Result<()> {
     if !manifest_path.exists() {
-        println!("no manifest...");
-        println!("downloading manifest...");
+        eprintln!("no manifest...");
+        eprintln!("downloading manifest...");
 
         let mut remote_doc = request_toml(manifest_url).await?;
 
-        println!("updating extensions...");
+        eprintln!("updating extensions...");
 
         return update_extensions(manifest_path, prompt_dir, &mut remote_doc, tmp_archive).await;
     }
@@ -450,8 +453,8 @@ pub async fn update_manifest(
     let (version_order, timestamp_order) = check_updates(header_url, manifest_path).await?;
 
     if timestamp_order == Ordering::Less {
-        println!("manifest out of date...");
-        println!("updating manifest...");
+        eprintln!("manifest out of date...");
+        eprintln!("updating manifest...");
 
         let remote_doc = request_toml(manifest_url).await?;
 
@@ -461,13 +464,13 @@ pub async fn update_manifest(
         write_manifest(&manifest_doc, manifest_path)?;
     }
 
-    println!("updating extensions...");
+    eprintln!("updating extensions...");
 
     update_extensions(manifest_path, prompt_dir, &mut manifest_doc, tmp_archive).await?;
 
     if version_order == Ordering::Less {
-        println!("owlgo out of date...");
-        println!("run `cargo install --force owlgo`")
+        eprintln!("owlgo out of date...");
+        eprintln!("run `cargo install --force owlgo`")
     }
 
     Ok(())

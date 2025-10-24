@@ -15,12 +15,10 @@ pub async fn fetch_extension(ext_name: &str) -> Result<()> {
 
     let manifest_doc = toml_utils::read_toml(&manifest_path)?;
 
-    let ext_uri_key = format!("{}.uri", ext_name);
-
-    let uri = match manifest_doc["ext_uri"].get(&ext_uri_key) {
+    let uri = match manifest_doc["ext_uri"].get(ext_name) {
         Some(uri_item) => {
             let uri_str = uri_item.as_str().ok_or(OwlError::TomlError(
-                format!("Invalid entry '{}' in manifest", &ext_uri_key),
+                format!("Invalid URI entry '{}' in manifest", ext_name),
                 "None".into(),
             ))?;
             Uri::try_from(uri_str)?
@@ -34,8 +32,18 @@ pub async fn fetch_extension(ext_name: &str) -> Result<()> {
     };
 
     let ext_doc = match uri {
-        Uri::Local(path) => toml_utils::read_toml(&path)?,
-        Uri::Remote(url) => toml_utils::request_toml(&url).await?,
+        Uri::Local(path) => {
+            eprintln!(
+                "reading extension '{}' at '{}'",
+                ext_name,
+                path.to_string_lossy()
+            );
+            toml_utils::read_toml(&path)?
+        }
+        Uri::Remote(url) => {
+            eprintln!("requesting extension '{}' from '{}'", ext_name, url);
+            toml_utils::request_toml(&url).await?
+        }
     };
 
     let tmp_archive = Path::new(TMP_ARCHIVE);
@@ -56,10 +64,16 @@ pub async fn fetch_extension(ext_name: &str) -> Result<()> {
 
             match Uri::try_from(quest_uri_str)? {
                 Uri::Local(path) => {
+                    eprintln!(
+                        "extracting quest '{}' at '{}'",
+                        quest_name,
+                        path.to_string_lossy()
+                    );
                     fs_utils::extract_archive(&path, tmp_archive)?;
                     fs_utils::remove_path(tmp_archive)?
                 }
                 Uri::Remote(url) => {
+                    eprintln!("downloading quest '{}' from '{}'", quest_name, url);
                     fs_utils::download_archive(&url, tmp_archive, &quest_path).await?
                 }
             };
@@ -84,8 +98,18 @@ pub async fn fetch_extension(ext_name: &str) -> Result<()> {
             prompt_path.push(prompt_name);
 
             match Uri::try_from(prompt_uri_str)? {
-                Uri::Local(path) => fs_utils::copy_file(&path, &prompt_path)?,
-                Uri::Remote(url) => fs_utils::download_file(&url, &prompt_path).await?,
+                Uri::Local(path) => {
+                    eprintln!(
+                        "copying prompt '{}' from '{}'",
+                        prompt_name,
+                        path.to_string_lossy()
+                    );
+                    fs_utils::copy_file(&path, &prompt_path)?
+                }
+                Uri::Remote(url) => {
+                    eprintln!("downloading prompt '{}' from '{}'", prompt_name, url);
+                    fs_utils::download_file(&url, &prompt_path).await?
+                }
             };
 
             prompt_path.pop();
