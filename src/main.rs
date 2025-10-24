@@ -66,9 +66,21 @@ fn cli() -> Command {
                 .about("adds new personal quest/extension/prompt to the manifest")
                 .arg(arg!(<NAME> "The name of the quest/extension/prompt"))
                 .arg(arg!(<URI> "The URL/PATH to fetch from"))
+                .arg(Arg::new("extension")
+                    .short('e')
+                    .long("ext")
+                    .action(ArgAction::SetTrue)
+                    .help("The URL is an extension to be committed")
+                    .conflicts_with("prompt")
+                )
+                .arg(Arg::new("prompt")
+                    .short('P')
+                    .long("prompt")
+                    .action(ArgAction::SetTrue)
+                    .help("The URL is a manifest to be committed")
+                    .conflicts_with("extension")
+                )
                 .arg(arg!(-F --fetch "Fetches test cases and prompts"))
-                .arg(arg!(-e --ext "The URL is an extension to be committed"))
-                .arg(arg!(-P --prompt "The URL is a manifest to be committed"))
                 .arg_required_else_help(true),
         )
         .subcommand(
@@ -88,8 +100,20 @@ fn cli() -> Command {
             Command::new("fetch")
                 .about("fetches quests/extensions/prompts to your machine")
                 .arg(arg!(<NAME> "The name of the quest/extension/prompt"))
-                .arg(arg!(-e --ext "The name is a manifest extension"))
-                .arg(arg!(-P --prompt "The name is a prompt"))
+                .arg(Arg::new("extension")
+                    .short('e')
+                    .long("ext")
+                    .action(ArgAction::SetTrue)
+                    .help("The name is a manifest extension")
+                    .conflicts_with("prompt")
+                )
+                .arg(Arg::new("prompt")
+                    .short('P')
+                    .long("prompt")
+                    .action(ArgAction::SetTrue)
+                    .help("The name is a prompt")
+                    .conflicts_with("extension")
+                )
                 .arg_required_else_help(true),
         )
         .subcommand(
@@ -271,9 +295,9 @@ async fn main() {
         Some(("add", sub_matches)) => {
             let name = sub_matches.get_one::<String>("NAME").expect("required");
             let uri_str = sub_matches.get_one::<String>("URI").expect("required");
-            let and_fetch = sub_matches.get_one::<bool>("fetch").is_some_and(|&f| f);
-            let is_extension = sub_matches.get_one::<bool>("ext").is_some_and(|&f| f);
+            let is_extension = sub_matches.get_one::<bool>("extension").is_some_and(|&f| f);
             let is_prompt = sub_matches.get_one::<bool>("prompt").is_some_and(|&f| f);
+            let and_fetch = sub_matches.get_one::<bool>("fetch").is_some_and(|&f| f);
 
             let uri = Uri::try_from(uri_str.as_str()).expect("provided URI is valid");
 
@@ -357,7 +381,7 @@ async fn main() {
         }
         Some(("fetch", sub_matches)) => {
             let name = sub_matches.get_one::<String>("NAME").expect("required");
-            let is_ext = sub_matches.get_one::<bool>("ext").is_some_and(|&f| f);
+            let is_ext = sub_matches.get_one::<bool>("extension").is_some_and(|&f| f);
             let is_prompt = sub_matches.get_one::<bool>("prompt").is_some_and(|&f| f);
 
             let action = if is_ext {
