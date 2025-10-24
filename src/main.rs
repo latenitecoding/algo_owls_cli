@@ -73,6 +73,7 @@ fn cli() -> Command {
                     .help("The URL is an extension to be committed")
                     .conflicts_with("prompt")
                 )
+                .arg(arg!(-F --fetch "Fetches test cases and prompts"))
                 .arg(Arg::new("prompt")
                     .short('P')
                     .long("prompt")
@@ -80,21 +81,53 @@ fn cli() -> Command {
                     .help("The URL is a manifest to be committed")
                     .conflicts_with("extension")
                 )
-                .arg(arg!(-F --fetch "Fetches test cases and prompts"))
                 .arg_required_else_help(true),
         )
         .subcommand(
             Command::new("clear")
                 .about("removes test cases and/or stashed files")
-                .arg(
-                    arg!(-s --stash "Removes all stashed programs/prompts/chats (and the git dir)"),
+                .arg(Arg::new("all")
+                    .long("all")
+                    .action(ArgAction::SetTrue)
+                    .help("Removes everything not excluded by other flags")
+                    .conflicts_with_all(["chat", "manifest", "program", "prompt", "stash"])
                 )
-                .arg(arg!(-p --program "Removes all stashed programs"))
-                .arg(arg!(-P --prompt "Removes all stashed prompts"))
-                .arg(arg!(-C --chat "Removes LLM chat history"))
-                .arg(arg!(-m --manifest "Removes the manifest"))
+                .arg(Arg::new("chat")
+                    .short('C')
+                    .long("chat")
+                    .action(ArgAction::SetTrue)
+                    .help("Removes LLM chat history")
+                    .conflicts_with_all(["all", "prompt", "stash"])
+                )
                 .arg(arg!(-k --keep "Tests are not cleared"))
-                .arg(arg!(--all "Removes everything not excluded by other flags")),
+                .arg(Arg::new("manifest")
+                    .short('m')
+                    .long("manifest")
+                    .action(ArgAction::SetTrue)
+                    .help("Removes all stashed programs")
+                    .conflicts_with("all")
+                )
+                .arg(Arg::new("program")
+                    .short('p')
+                    .long("program")
+                    .action(ArgAction::SetTrue)
+                    .help("Removes all stashed programs")
+                    .conflicts_with("all")
+                )
+                .arg(Arg::new("prompt")
+                    .short('P')
+                    .long("prompt")
+                    .action(ArgAction::SetTrue)
+                    .help("Removes all stashed prompts")
+                    .conflicts_with_all(["all", "chat", "stash"])
+                )
+                .arg(Arg::new("stash")
+                    .short('s')
+                    .long("stash")
+                    .action(ArgAction::SetTrue)
+                    .help("Removes all stashed programs/prompts/chats (and the git dir)")
+                    .conflicts_with_all(["all", "chat", "prompt"])
+                ),
         )
         .subcommand(
             Command::new("fetch")
@@ -147,20 +180,56 @@ fn cli() -> Command {
         .subcommand(
             Command::new("list")
                 .about("outputs information on stashed files")
+                .arg(Arg::new("chat")
+                    .short('C')
+                    .long("chat")
+                    .action(ArgAction::SetTrue)
+                    .help("List starting in the chat directory")
+                    .conflicts_with_all(["prompt", "root"])
+                )
+                .arg(Arg::new("prompt")
+                    .short('P')
+                    .long("prompt")
+                    .action(ArgAction::SetTrue)
+                    .help("List starting in the prompt directory")
+                    .conflicts_with_all(["chat", "root"])
+                )
+                .arg(Arg::new("root")
+                    .short('O')
+                    .long("root")
+                    .action(ArgAction::SetTrue)
+                    .help("List starting from the root of the owlgo directory")
+                    .conflicts_with_all(["chat", "prompt"])
+                )
                 .arg(arg!(-I --tui "Enters an interactive TUI to preview files"))
-                .arg(arg!(-O --root "List starting from the root of the owlgo directory"))
-                .arg(arg!(-P --prompt "List starting in the prompt directory"))
-                .arg(arg!(-C --chat "List starting in the chat directory")),
         )
         .subcommand(
             Command::new("quest")
                 .about("tests program against all test cases in the selected quest")
                 .arg(arg!(<NAME> "The name of the quest"))
                 .arg(arg!(<PROG> "The program to test"))
-                .arg(arg!(-t --test <TEST> "The specific test to run by name"))
-                .arg(arg!(-c --case <CASE> "The specific test to run by case number"))
-                .arg(arg!(-r --rand "Test against a random test case"))
+                .arg(Arg::new("CASE")
+                    .short('c')
+                    .long("case")
+                    .help("The specific test to run by case number")
+                    .conflicts_with_all(["rand", "TEST"])
+                    .value_parser(clap::value_parser!(usize))
+                )
+                .arg(Arg::new("TEST")
+                    .short('t')
+                    .long("test")
+                    .help("The specific test to run by name")
+                    .conflicts_with_all(["CASE", "rand"])
+                    .value_parser(clap::value_parser!(String))
+                )
                 .arg(arg!(--hints "Prints the hint(s)/feedback (if any)"))
+                .arg(Arg::new("rand")
+                    .short('r')
+                    .long("rand")
+                    .help("Test against a random test case")
+                    .action(ArgAction::SetTrue)
+                    .conflicts_with_all(["CASE", "TEST"])
+                )
                 .arg_required_else_help(true),
         )
         .subcommand(
@@ -176,7 +245,6 @@ fn cli() -> Command {
                 .arg(arg!([PROMPT] "The prompt or description to give"))
                 .arg(arg!(--sdk <SDK> "Updates the chosen LLM sdk (e.g, 'claude')"))
                 .arg(arg!(--key <KEY> "Updates the API key for the chosen LLM"))
-                .arg(arg!(-I --tui "Enters an interactive TUI to chat with chosen LLM"))
                 .arg(Arg::new("file")
                     .short('f')
                     .long("file")
@@ -198,7 +266,6 @@ fn cli() -> Command {
                     .help("The prompt/desc is from stash")
                     .conflicts_with_all(["file", "quest"])
                 )
-                .arg(arg!(-F --forget "Forget chat history after each prompt"))
                 .arg(Arg::new("debug")
                     .short('D')
                     .long("debug")
@@ -227,6 +294,7 @@ fn cli() -> Command {
                     .help("Prompt for alternative implementation")
                     .conflicts_with_all(["debug", "default", "explain", "optimize", "test"])
                 )
+                .arg(arg!(-F --forget "Forget chat history after each prompt"))
                 .arg(Arg::new("optimize")
                     .short('z')
                     .long("opt")
@@ -241,6 +309,7 @@ fn cli() -> Command {
                     .help("Prompt for help identifying tests and edge cases")
                     .conflicts_with_all(["debug", "default", "explain", "explore", "optimize"])
                 )
+                .arg(arg!(-I --tui "Enters an interactive TUI to chat with chosen LLM"))
                 .arg_required_else_help(true),
         )
         .subcommand(
@@ -253,22 +322,70 @@ fn cli() -> Command {
             Command::new("show")
                 .about("prints test input/expected or stashed files")
                 .arg(arg!([NAME] "The name of the quest/solution/program/prompt"))
-                .arg(arg!(-I --tui "Show the file in a TUI (redirects to list if no other args are provided)"))
-                .arg(arg!(-t --test <TEST> "The specific test to print by name"))
-                .arg(arg!(-c --case <CASE> "The specific test to print by case number"))
-                .arg(arg!(-r --rand "Print a random test case"))
+                .arg(Arg::new("CASE")
+                    .short('c')
+                    .long("case")
+                    .help("The specific test to print by case number")
+                    .conflicts_with_all(["manifest", "program", "prompt", "rand", "TEST"])
+                    .value_parser(clap::value_parser!(usize))
+                )
+                .arg(Arg::new("TEST")
+                    .short('t')
+                    .long("test")
+                    .help("The specific test to print by name")
+                    .conflicts_with_all(["CASE", "manifest", "program", "prompt", "rand"])
+                    .value_parser(clap::value_parser!(String))
+                )
                 .arg(arg!(-a --ans "Print the answer instead of the input"))
-                .arg(arg!(-p --program "Show a stashed program instead of a test case"))
-                .arg(arg!(-P --prompt "Show a stashed prompt instead of a test case"))
-                .arg(arg!(-m --manifest "Show the manifest"))
+                .arg(Arg::new("manifest")
+                    .short('m')
+                    .long("manifest")
+                    .help("Show the manifest")
+                    .action(ArgAction::SetTrue)
+                    .conflicts_with_all(["ans", "CASE", "program", "prompt", "rand", "TEST"])
+                )
+                .arg(Arg::new("program")
+                    .short('p')
+                    .long("program")
+                    .help("Show a stashed program instead of a test case")
+                    .action(ArgAction::SetTrue)
+                    .conflicts_with_all(["ans", "CASE", "manifest", "prompt", "rand", "TEST"])
+                )
+                .arg(Arg::new("prompt")
+                    .short('P')
+                    .long("prompt")
+                    .help("Show a stashed prompt instead of a test case")
+                    .action(ArgAction::SetTrue)
+                    .conflicts_with_all(["ans", "CASE", "manifest", "program", "rand", "TEST"])
+                )
+                .arg(Arg::new("rand")
+                    .short('r')
+                    .long("rand")
+                    .help("Print a random test case")
+                    .action(ArgAction::SetTrue)
+                    .conflicts_with_all(["CASE", "manifest", "program", "prompt", "TEST"])
+                )
+                .arg(arg!(-I --tui "Show the file in a TUI (redirects to list if no other args are provided)"))
                 .arg_required_else_help(true),
         )
         .subcommand(
             Command::new("stash")
                 .about("stashes the program/prompt/file away for later")
                 .arg(arg!(<PROG> "The program/prompt/file to stash"))
-                .arg(arg!(-T --templ "Stashes the program away as a template"))
-                .arg(arg!(-P --prompt "Stashes the file away as a prompt"))
+                .arg(Arg::new("prompt")
+                    .short('P')
+                    .long("prompt")
+                    .action(ArgAction::SetTrue)
+                    .help("Stashes the file away as a prompt")
+                    .conflicts_with("template")
+                )
+                .arg(Arg::new("template")
+                    .short('T')
+                    .long("templ")
+                    .action(ArgAction::SetTrue)
+                    .help("Stashes the program away as a template")
+                    .conflicts_with("prompt")
+                )
                 .arg_required_else_help(true),
         )
         .subcommand(
@@ -296,8 +413,8 @@ async fn main() {
             let name = sub_matches.get_one::<String>("NAME").expect("required");
             let uri_str = sub_matches.get_one::<String>("URI").expect("required");
             let is_extension = sub_matches.get_one::<bool>("extension").is_some_and(|&f| f);
-            let is_prompt = sub_matches.get_one::<bool>("prompt").is_some_and(|&f| f);
             let and_fetch = sub_matches.get_one::<bool>("fetch").is_some_and(|&f| f);
+            let is_prompt = sub_matches.get_one::<bool>("prompt").is_some_and(|&f| f);
 
             let uri = Uri::try_from(uri_str.as_str()).expect("provided URI is valid");
 
@@ -314,13 +431,13 @@ async fn main() {
             }
         }
         Some(("clear", sub_matches)) => {
-            let do_stash = sub_matches.get_one::<bool>("stash").is_some_and(|&f| f);
+            let do_all = sub_matches.get_one::<bool>("all").is_some_and(|&f| f);
+            let do_chat = sub_matches.get_one::<bool>("chat").is_some_and(|&f| f);
+            let keep_tests = sub_matches.get_one::<bool>("keep").is_some_and(|&f| f);
+            let do_manif = sub_matches.get_one::<bool>("manifest").is_some_and(|&f| f);
             let do_programs = sub_matches.get_one::<bool>("program").is_some_and(|&f| f);
             let do_prompts = sub_matches.get_one::<bool>("prompt").is_some_and(|&f| f);
-            let do_chat = sub_matches.get_one::<bool>("chat").is_some_and(|&f| f);
-            let do_manif = sub_matches.get_one::<bool>("manifest").is_some_and(|&f| f);
-            let keep_tests = sub_matches.get_one::<bool>("keep").is_some_and(|&f| f);
-            let do_all = sub_matches.get_one::<bool>("all").is_some_and(|&f| f);
+            let do_stash = sub_matches.get_one::<bool>("stash").is_some_and(|&f| f);
 
             let action = fs_utils::ensure_path_from_home(&[OWL_DIR], None)
                 .and_then(|owl_dir| {
@@ -456,9 +573,9 @@ async fn main() {
             }
         }
         Some(("list", sub_matches)) => {
-            let start_from_root = sub_matches.get_one::<bool>("root").is_some_and(|&f| f);
-            let start_from_prompt = sub_matches.get_one::<bool>("prompt").is_some_and(|&f| f);
             let start_from_chat = sub_matches.get_one::<bool>("chat").is_some_and(|&f| f);
+            let start_from_prompt = sub_matches.get_one::<bool>("prompt").is_some_and(|&f| f);
+            let start_from_root = sub_matches.get_one::<bool>("root").is_some_and(|&f| f);
             let use_tui = sub_matches.get_one::<bool>("tui").is_some_and(|&f| f);
 
             let target_dir = if start_from_root {
@@ -509,12 +626,10 @@ async fn main() {
         Some(("quest", sub_matches)) => {
             let name = sub_matches.get_one::<String>("NAME").expect("required");
             let prog = sub_matches.get_one::<String>("PROG").expect("required");
-            let test = sub_matches.get_one::<String>("test");
-            let mut case = sub_matches
-                .get_one::<String>("case")
-                .map(|s| s.parse::<usize>().expect("case argument is type usize"));
-            let rand = sub_matches.get_one::<bool>("rand").is_some_and(|&f| f);
+            let mut case = sub_matches.get_one::<usize>("CASE").map(|u| u.to_owned());
+            let test = sub_matches.get_one::<String>("TEST");
             let use_hints = sub_matches.get_one::<bool>("hints").is_some_and(|&f| f);
+            let rand = sub_matches.get_one::<bool>("rand").is_some_and(|&f| f);
 
             if rand {
                 case = Some(rand::random::<u64>() as usize);
@@ -653,15 +768,13 @@ async fn main() {
             }
         }
         Some(("show", sub_matches)) => {
-            let test = sub_matches.get_one::<String>("test");
-            let mut case = sub_matches
-                .get_one::<String>("case")
-                .map(|s| s.parse::<usize>().expect("case argument is type usize"));
-            let rand = sub_matches.get_one::<bool>("rand").is_some_and(|&f| f);
+            let test = sub_matches.get_one::<String>("TEST");
+            let mut case = sub_matches.get_one::<usize>("CASE").map(|u| u.to_owned());
             let show_ans = sub_matches.get_one::<bool>("ans").is_some_and(|&f| f);
+            let show_manifest = sub_matches.get_one::<bool>("manifest").is_some_and(|&f| f);
             let show_program = sub_matches.get_one::<bool>("program").is_some_and(|&f| f);
             let show_prompt = sub_matches.get_one::<bool>("prompt").is_some_and(|&f| f);
-            let show_manifest = sub_matches.get_one::<bool>("manifest").is_some_and(|&f| f);
+            let rand = sub_matches.get_one::<bool>("rand").is_some_and(|&f| f);
             let use_tui = sub_matches.get_one::<bool>("tui").is_some_and(|&f| f);
 
             let action = if show_program || show_prompt || show_manifest {

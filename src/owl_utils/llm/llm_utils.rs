@@ -78,20 +78,22 @@ Include tests for:
 All inputs will be valid. Please explain your reasoning for each suggestion.
 "#;
 
-pub async fn llm_reply_with_client(
+pub async fn llm_query_client(
     ai_sdk: &str,
     client: &Anthropic,
-    user_reply: &str,
-    chat_ctx: &str,
+    ai_responses: &[String],
+    user_queries: &[String],
 ) -> Result<String> {
+    let mut builder = MessageCreateBuilder::new("claude-sonnet-4-5", 1024);
+
+    for (ai_response, user_query) in ai_responses.iter().zip(user_queries.iter()) {
+        builder = builder.assistant(ai_response.as_str());
+        builder = builder.user(user_query.as_str());
+    }
+
     let response = client
         .messages()
-        .create(
-            MessageCreateBuilder::new("claude-sonnet-4-5", 1024)
-                .user(user_reply)
-                .assistant(chat_ctx)
-                .build(),
-        )
+        .create(builder.build())
         .await
         .map_err(|e| {
             OwlError::LlmError(

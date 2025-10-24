@@ -1,5 +1,6 @@
+use super::tui_markdown;
 use crate::common::{OwlError, Result};
-use crate::owl_utils::{PromptMode, fs_utils, llm_utils};
+use crate::owl_utils::{PromptMode, fs_utils, llm_utils, prog_utils};
 use ansi_to_tui::IntoText;
 use anthropic_sdk::Anthropic;
 use crossterm::{
@@ -104,6 +105,7 @@ impl FileApp {
 
         let ps = SyntaxSet::load_defaults_newlines();
         let ts = ThemeSet::load_defaults();
+        let should_use_syntax_highlighting = prog_utils::check_prog_lang(path).is_some();
 
         let tick_rate = Duration::from_millis(250);
         let mut last_tick = Instant::now();
@@ -115,11 +117,14 @@ impl FileApp {
 
                     let (file_content, num_lines) = match fs_utils::read_contents(path) {
                         Ok(file_content) => {
-                            // let (content, n) = format_content(&file_content, cols);
-                            let content = highlight_content(path, file_content, &ps, &ts);
-                            let n = content.split('\n').count();
-
-                            (content, n)
+                            if should_use_syntax_highlighting {
+                                let content = highlight_content(path, file_content, &ps, &ts);
+                                let n = content.split('\n').count();
+                                (content, n)
+                            } else {
+                                let n = file_content.split('\n').count();
+                                (file_content, n)
+                            }
                         }
                         _ => ("Failed to load file.".into(), 1),
                     };
@@ -148,7 +153,9 @@ impl FileApp {
                             )
                             .wrap(Wrap { trim: true })
                             .scroll((self.vertical_scroll as u16, 0))
-                    } else if let Ok(text) = file_content.into_text() {
+                    } else if should_use_syntax_highlighting
+                        && let Ok(text) = file_content.into_text()
+                    {
                         Paragraph::new(text)
                             .block(
                                 Block::default()
@@ -259,6 +266,9 @@ impl FileExplorerApp {
         loop {
             let file_cursor = file_explorer.current();
 
+            let should_use_syntax_highlighting =
+                prog_utils::check_prog_lang(file_cursor.path()).is_some();
+
             terminal
                 .draw(|f| {
                     let h_chunks = layout.split(f.area());
@@ -272,12 +282,19 @@ impl FileExplorerApp {
                     let (file_content, num_lines) =
                         match fs_utils::read_contents(file_cursor.path()) {
                             Ok(file_content) => {
-                                // let (content, n) = format_content(&file_content, cols);
-                                let content =
-                                    highlight_content(file_cursor.path(), file_content, &ps, &ts);
-                                let n = content.split('\n').count();
-
-                                (content, n)
+                                if should_use_syntax_highlighting {
+                                    let content = highlight_content(
+                                        file_cursor.path(),
+                                        file_content,
+                                        &ps,
+                                        &ts,
+                                    );
+                                    let n = content.split('\n').count();
+                                    (content, n)
+                                } else {
+                                    let n = file_content.split('\n').count();
+                                    (file_content, n)
+                                }
                             }
                             _ => ("Failed to load file.".into(), 1),
                         };
@@ -304,7 +321,9 @@ impl FileExplorerApp {
                             )
                             .wrap(Wrap { trim: true })
                             .scroll((self.vertical_scroll as u16, 0))
-                    } else if let Ok(text) = file_content.into_text() {
+                    } else if should_use_syntax_highlighting
+                        && let Ok(text) = file_content.into_text()
+                    {
                         Paragraph::new(text)
                             .block(
                                 Block::default()
@@ -398,18 +417,16 @@ impl LlmApp {
         &mut self,
         ai_sdk: &str,
         layout: &Layout,
-        markdown_content: &[String],
+        markdown_str: &str,
+        lines_len: usize,
         textarea: &TextArea,
         f: &mut Frame,
     ) {
         let chunks = layout.split(f.area());
 
-        let markdown_str = markdown_content.join("\n");
-        let markdown_text = tui_markdown::from_str(&markdown_str);
+        let markdown_text = tui_markdown::from_str(markdown_str);
 
-        self.vertical_scroll_state = self
-            .vertical_scroll_state
-            .content_length(markdown_content.len());
+        self.vertical_scroll_state = self.vertical_scroll_state.content_length(lines_len);
 
         let title = Block::new()
             .title_alignment(Alignment::Center)
@@ -472,39 +489,43 @@ impl LlmApp {
                 .border_type(BorderType::Double),
         );
 
-        let mut markdown_content = vec![format!("**>>> {}**: Thinking...\n", ai_sdk)];
+        let mut ai_responses: Vec<String> = Vec::new();
+        let mut user_queries: Vec<String> = Vec::new();
+
+        let mut markdown_str = format!("**# {}**: Thinking...\n", ai_sdk);
+        let mut lines_len = 1;
 
         terminal
-            .draw(|f| self.draw(ai_sdk, &layout, &markdown_content, &textarea, f))
+            .draw(|f| self.draw(ai_sdk, &layout, &markdown_str, lines_len, &textarea, f))
             .map_err(|e| OwlError::TuiError("Failed to draw frame".into(), e.to_string()))?;
 
-        llm_utils::llm_review_with_client(ai_sdk, client, check_prog, check_prompt, mode)
-            .await?
-            .split('\n')
-            .for_each(|line| markdown_content.push(line.to_string()));
+        let response =
+            llm_utils::llm_review_with_client(ai_sdk, client, check_prog, check_prompt, mode)
+                .await?;
 
-        let mut user_has_reply = false;
+        markdown_str.push_str(&response);
+        lines_len += response.split('\n').count();
+        ai_responses.push(response);
+
+        let mut user_has_query = false;
 
         loop {
             terminal
-                .draw(|f| self.draw(ai_sdk, &layout, &markdown_content, &textarea, f))
+                .draw(|f| self.draw(ai_sdk, &layout, &markdown_str, lines_len, &textarea, f))
                 .map_err(|e| OwlError::TuiError("Failed to draw frame".into(), e.to_string()))?;
 
-            if user_has_reply {
-                llm_utils::llm_reply_with_client(
-                    ai_sdk,
-                    client,
-                    &textarea.yank_text(),
-                    markdown_content.join("\n").trim(),
-                )
-                .await?
-                .split('\n')
-                .for_each(|line| markdown_content.push(line.to_string()));
+            if user_has_query {
+                let response =
+                    llm_utils::llm_query_client(ai_sdk, client, &ai_responses, &user_queries)
+                        .await?;
 
-                user_has_reply = false;
+                markdown_str.push_str(&response);
+                lines_len += response.split('\n').count();
+                ai_responses.push(response);
+                user_has_query = false;
 
                 terminal
-                    .draw(|f| self.draw(ai_sdk, &layout, &markdown_content, &textarea, f))
+                    .draw(|f| self.draw(ai_sdk, &layout, &markdown_str, lines_len, &textarea, f))
                     .map_err(|e| {
                         OwlError::TuiError("Failed to draw frame".into(), e.to_string())
                     })?;
@@ -533,22 +554,23 @@ impl LlmApp {
                                 self.vertical_scroll_state.position(self.vertical_scroll);
                         }
                         KeyCode::Enter => {
-                            self.vertical_scroll = markdown_content.len();
+                            self.vertical_scroll = lines_len;
                             self.vertical_scroll_state.last();
 
-                            markdown_content.push("\n**>>> user**:".to_string());
+                            markdown_str.push_str("\n\n**# user**: ");
 
                             textarea.select_all();
                             textarea.cut();
 
-                            textarea
-                                .yank_text()
-                                .split('\n')
-                                .for_each(|line| markdown_content.push(line.to_string()));
+                            let user_query = textarea.yank_text().clone();
 
-                            markdown_content.push(format!("\n**>>> {}**: Thinking...\n", ai_sdk));
+                            markdown_str.push_str(&user_query);
+                            lines_len += user_query.split('\n').count();
+                            user_queries.push(user_query);
+                            user_has_query = true;
 
-                            user_has_reply = true;
+                            markdown_str
+                                .push_str(&format!("\n\n**# {}**: Thinking...\n\n", ai_sdk));
                         }
                         _ => {
                             textarea.input(key);
@@ -562,6 +584,6 @@ impl LlmApp {
             }
         }
 
-        Ok(markdown_content.join("\n"))
+        Ok(markdown_str)
     }
 }
