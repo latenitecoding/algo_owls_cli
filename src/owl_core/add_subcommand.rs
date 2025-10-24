@@ -64,7 +64,7 @@ pub async fn add_prompt(prompt_name: &str, uri: &Uri, and_fetch: bool) -> Result
         Uri::Remote(url) => url.as_str(),
     };
 
-    manifest_doc["prompts"][prompt_name] = value(uri_str);
+    manifest_doc["personal_prompts"][prompt_name] = value(uri_str);
 
     toml_utils::write_manifest(&manifest_doc, &manifest_path)?;
 

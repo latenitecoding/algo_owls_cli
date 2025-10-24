@@ -8,7 +8,7 @@ pub async fn fetch_extension(ext_name: &str) -> Result<()> {
 
     if !manifest_path.exists() {
         return Err(OwlError::FileError(
-            "the manifest does not exist".into(),
+            "The manifest does not exist".into(),
             "".into(),
         ));
     }
@@ -17,18 +17,18 @@ pub async fn fetch_extension(ext_name: &str) -> Result<()> {
 
     let ext_uri_key = format!("{}.uri", ext_name);
 
-    let uri = match manifest_doc["ext_uri"].get(ext_uri_key) {
+    let uri = match manifest_doc["ext_uri"].get(&ext_uri_key) {
         Some(uri_item) => {
             let uri_str = uri_item.as_str().ok_or(OwlError::TomlError(
-                format!("'{}': could not read entry in manifest", ext_name),
-                "".into(),
+                format!("Invalid entry '{}' in manifest", &ext_uri_key),
+                "None".into(),
             ))?;
             Uri::try_from(uri_str)?
         }
         None => {
             return Err(OwlError::TomlError(
                 format!("'{}': no such entry found manifest", ext_name),
-                "".into(),
+                "None".into(),
             ));
         }
     };
@@ -40,21 +40,18 @@ pub async fn fetch_extension(ext_name: &str) -> Result<()> {
 
     let tmp_archive = Path::new(TMP_ARCHIVE);
 
-    if let Some(personal_table) = ext_doc["personal_quests"].as_table() {
+    if let Some(quests_table) = ext_doc["quests"].as_table() {
         let mut quest_path = manifest_path
             .parent()
             .expect("owlgo directory to exist")
             .to_path_buf();
 
-        for (quest_name, quest_uri) in personal_table.iter() {
+        for (quest_name, quest_uri) in quests_table.iter() {
             quest_path.push(quest_name);
 
             let quest_uri_str = quest_uri.as_str().ok_or(OwlError::TomlError(
-                format!(
-                    "invalid entry for '{}' in extension '{}'",
-                    quest_name, ext_name
-                ),
-                "".into(),
+                format!("Invalid entry '{}' in extension '{}'", quest_name, ext_name),
+                "None".into(),
             ))?;
 
             match Uri::try_from(quest_uri_str)? {
@@ -78,10 +75,10 @@ pub async fn fetch_extension(ext_name: &str) -> Result<()> {
         for (prompt_name, prompt_uri) in prompt_table.iter() {
             let prompt_uri_str = prompt_uri.as_str().ok_or(OwlError::TomlError(
                 format!(
-                    "invalid entry for '{}' in extension '{}'",
+                    "Invalid entry '{}' in extension '{}'",
                     prompt_name, ext_name
                 ),
-                "".into(),
+                "None".into(),
             ))?;
 
             prompt_path.push(prompt_name);
@@ -105,25 +102,29 @@ pub async fn fetch_prompt(prompt_name: &str) -> Result<()> {
 
     if !manifest_path.exists() {
         return Err(OwlError::FileError(
-            "the manifest does not exist".into(),
+            "The manifest does not exist".into(),
             "".into(),
         ));
     }
 
     let manifest_doc = toml_utils::read_toml(&manifest_path)?;
 
-    let uri = match manifest_doc["prompts"].get(prompt_name) {
+    let prompt_entry = manifest_doc["personal_prompts"]
+        .get(prompt_name)
+        .or(manifest_doc["prompts"].get(prompt_name));
+
+    let uri = match prompt_entry {
         Some(uri_item) => {
             let uri_str = uri_item.as_str().ok_or(OwlError::TomlError(
-                format!("'{}': could not read entry in manifest", prompt_name),
-                "".into(),
+                format!("Invalid entry '{}' in manifest", prompt_name),
+                "None".into(),
             ))?;
             Uri::try_from(uri_str)?
         }
         None => {
             return Err(OwlError::TomlError(
                 format!("'{}': no such entry found manifest", prompt_name),
-                "".into(),
+                "None".into(),
             ));
         }
     };
@@ -140,7 +141,7 @@ pub async fn fetch_quest(quest_name: &str) -> Result<()> {
 
     if !manifest_path.exists() {
         return Err(OwlError::FileError(
-            "the manifest does not exist".into(),
+            "The manifest does not exist".into(),
             "".into(),
         ));
     }
@@ -153,15 +154,15 @@ pub async fn fetch_quest(quest_name: &str) -> Result<()> {
     let uri = match quest_entry {
         Some(uri_item) => {
             let uri_str = uri_item.as_str().ok_or(OwlError::TomlError(
-                format!("'{}': could not read entry in manifest", quest_name),
-                "".into(),
+                format!("Invalid entry '{}' in manifest", quest_name),
+                "None".into(),
             ))?;
             Uri::try_from(uri_str)?
         }
         None => {
             return Err(OwlError::TomlError(
                 format!("'{}': no such entry found manifest", quest_name),
-                "".into(),
+                "None".into(),
             ));
         }
     };

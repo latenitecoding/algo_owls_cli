@@ -51,21 +51,21 @@ pub async fn commit_doc(
     local_doc: &mut DocumentMut,
     and_fetch_to_tmp: Option<&Path>,
 ) -> Result<()> {
-    if let Some(personal_table) = remote_doc["personal_quests"].as_table() {
+    if let Some(quests_table) = remote_doc["quests"].as_table() {
         let mut quest_path = manifest_path
             .parent()
             .expect("manifest file to have parent owlgo directory")
             .to_path_buf();
 
-        for (quest_name, quest_uri) in personal_table.iter() {
-            local_doc["personal_quests"][quest_name] = quest_uri.clone();
+        for (quest_name, quest_uri) in quests_table.iter() {
+            local_doc["quests"][quest_name] = quest_uri.clone();
 
             if let Some(tmp_archive) = and_fetch_to_tmp {
                 quest_path.push(quest_name);
 
                 let quest_uri_str = quest_uri.as_str().ok_or(OwlError::TomlError(
                     format!(
-                        "Invalid entry for '{}' in table 'personal' in extension '{}'",
+                        "Invalid entry for '{}' in table 'quests' in extension '{}'",
                         quest_name, ext_name
                     ),
                     "None".into(),
@@ -349,8 +349,8 @@ pub async fn update_extensions(
     if let Some(ext_table) = manifest_doc["extensions"].as_table() {
         let mut tmp_doc = DocumentMut::new();
         tmp_doc["extensions"] = Table::new().into();
-        tmp_doc["personal_quests"] = Table::new().into();
         tmp_doc["prompts"] = Table::new().into();
+        tmp_doc["quests"] = Table::new().into();
 
         for (ext_name, ext_timestamp) in ext_table.iter() {
             let ext_uri_key = format!("{}.uri", ext_name);
@@ -376,9 +376,9 @@ pub async fn update_extensions(
                     .as_str()
                     .ok_or(OwlError::TomlError(
                         format!(
-                            "Invalid entry for 'timestamp' in table 'manifest' from remote extension '{}'",
-                            ext_name
-                        ),
+                    "Invalid entry for 'timestamp' in table 'manifest' from remote extension '{}'",
+                    ext_name
+                ),
                         "None".into(),
                     ))?;
 
@@ -411,15 +411,15 @@ pub async fn update_extensions(
             }
         }
 
-        if let Some(tmp_personal_table) = tmp_doc["personal_quests"].as_table() {
-            for (key, item) in tmp_personal_table.iter() {
-                manifest_doc["personal_quests"][key] = item.clone();
-            }
-        }
-
         if let Some(tmp_prompt_table) = tmp_doc["prompts"].as_table() {
             for (key, item) in tmp_prompt_table.iter() {
                 manifest_doc["prompts"][key] = item.clone();
+            }
+        }
+
+        if let Some(tmp_quests_table) = tmp_doc["quests"].as_table() {
+            for (key, item) in tmp_quests_table.iter() {
+                manifest_doc["quests"][key] = item.clone();
             }
         }
     }

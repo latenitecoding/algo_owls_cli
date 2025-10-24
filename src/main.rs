@@ -42,6 +42,8 @@ api_key = ""
 
 [ext_uri]
 
+[personal_prompts]
+
 [personal_quests]
 
 [prompts]
