@@ -16,7 +16,7 @@ use owl_utils::{
     FileExplorerApp, PromptMode, Uri, cmd_utils, fs_utils, prog_utils, toml_utils, tui_utils,
 };
 
-use crate::owl_utils::FileApp;
+use crate::owl_utils::{FileApp, git_utils};
 
 const CHAT_DIR: &str = ".chat";
 const GIT_DIR: &str = ".git";
@@ -165,6 +165,10 @@ fn cli() -> Command {
                         .arg(arg!(<REMOTE> "The git remote"))
                         .arg(arg!(-f --force "Replaces the current git remote"))
                         .arg_required_else_help(true),
+                )
+                .subcommand(
+                    Command::new("status")
+                        .about("checks the current status of the remote")
                 )
                 .subcommand(
                     Command::new("sync")
@@ -528,6 +532,15 @@ async fn main() {
                 let use_force = sub_matches.get_one::<bool>("force").is_some_and(|&f| f);
 
                 if let Err(e) = owl_core::set_git_remote(remote, use_force) {
+                    report_owl_err!(e);
+                }
+            }
+            Some(("status", _)) => {
+                let action = fs_utils::ensure_path_from_home(&[OWL_DIR, STASH_DIR], None)
+                    .and_then(|stash_dir| git_utils::git_status(&stash_dir))
+                    .map(|stdout| println!("{}", stdout));
+
+                if let Err(e) = action {
                     report_owl_err!(e);
                 }
             }
