@@ -96,18 +96,42 @@ pub fn quest_it(
             "".into(),
         ))?;
 
-    let ans_str = format!("{}.ans", in_stem);
-
     let mut ans_path = test_case
         .parent()
-        .expect("owlgo directory to exist")
+        .ok_or(OwlError::FileError(
+            format!(
+                "Failed to determine parent dir of '{}'",
+                test_case.to_string_lossy()
+            ),
+            "None".into(),
+        ))?
         .to_path_buf();
+
+    let ans_str = format!("{}.ans", in_stem);
     ans_path.push(&ans_str);
+
+    if !ans_path.exists() {
+        ans_path.pop();
+        let out_str = format!("{}.out", in_stem);
+        ans_path.push(out_str);
+    }
+
+    if !ans_path.exists() {
+        return Err(OwlError::FileError(
+            format!(
+                "Failed to find answer for '{}' using stem '{}.ans' or '{}.out'",
+                test_case.to_string_lossy(),
+                in_stem,
+                in_stem
+            ),
+            "".into(),
+        ));
+    }
 
     match super::test_it(target, test_case, &ans_path) {
         Ok(elapsed) => {
             println!(
-                "({}/{}) [{}ms] {} \x1b[32mpassed test\x1b[0m 🎉\n",
+                "({}/{}) [{}ms] test_name: \x1b[36m{}\x1b[0m, status: \x1b[32mpassed test\x1b[0m 🎉\n",
                 count,
                 total,
                 elapsed.as_millis(),
@@ -137,7 +161,7 @@ pub fn quest_it(
             }
 
             eprintln!(
-                "({}/{}) {} \x1b[31m{}\x1b[0m 😭\n",
+                "({}/{}) test_name: \x1b[36m{}\x1b[0m, status: \x1b[31m{}\x1b[0m 😭\n",
                 count, total, in_stem, e
             );
 
