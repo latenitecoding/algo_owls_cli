@@ -5,9 +5,9 @@ use crate::{GIT_DIR, OWL_DIR, STASH_DIR};
 pub fn push_git_remote(use_force: bool) -> Result<()> {
     let git_path = fs_utils::ensure_path_from_home(&[OWL_DIR, STASH_DIR], Some(GIT_DIR))?;
 
-    if git_path.exists() && !use_force {
+    if !git_path.exists() {
         return Err(OwlError::FileError(
-            ".git directory already exists in stash".into(),
+            "No .git directory in stash".into(),
             "".into(),
         ));
     }
@@ -70,9 +70,9 @@ pub fn set_git_remote(remote: &str, use_force: bool) -> Result<()> {
 pub fn sync_git_remote(use_force: bool) -> Result<()> {
     let git_path = fs_utils::ensure_path_from_home(&[OWL_DIR, STASH_DIR], Some(GIT_DIR))?;
 
-    if git_path.exists() && !use_force {
+    if !git_path.exists() {
         return Err(OwlError::FileError(
-            ".git directory already exists in stash".into(),
+            "No .git directory in stash".into(),
             "".into(),
         ));
     }

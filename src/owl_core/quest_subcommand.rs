@@ -35,10 +35,14 @@ pub async fn quest(
 
     let mut passed = 0;
     let mut failed = 0;
-    let mut count = 0;
     let mut total_duration: Option<Duration> = None;
 
-    for test_case in test_cases {
+    let (start, end, mut count) = match case_id {
+        Some(d) => (d, d + 1, d - 1),
+        None => (0, total, 0),
+    };
+
+    for test_case in test_cases.iter().skip(count).take(end - start) {
         count += 1;
 
         if let Some(d) = case_id
@@ -47,7 +51,7 @@ pub async fn quest(
             continue;
         }
 
-        match quest_it(&target, &test_case, count, total, use_hints) {
+        match quest_it(&target, test_case, count, total, use_hints) {
             Ok((true, elapsed)) => {
                 passed += 1;
                 total_duration = match (total_duration, elapsed) {

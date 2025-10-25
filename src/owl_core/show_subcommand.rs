@@ -60,7 +60,7 @@ pub async fn show_quest(
     };
 
     if let Some(case_number) = case_id {
-        let test_case = &test_cases[(case_number + 1) % test_cases.len()];
+        let test_case = &test_cases[(case_number - 1) % test_cases.len()];
 
         if use_tui {
             tui_utils::enter_raw_mode().and_then(|_| match FileApp::default().run(test_case) {
