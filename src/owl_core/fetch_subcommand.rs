@@ -71,7 +71,7 @@ pub async fn fetch_extension(ext_name: &str) -> Result<()> {
                         quest_name,
                         path.to_string_lossy()
                     );
-                    fs_utils::extract_archive(&path, tmp_archive, true).await
+                    fs_utils::extract_archive(&path, &quest_path, false).await
                 }
                 Uri::Remote(url) => {
                     eprintln!(">>> downloading quest '{}' from '{}' ...", quest_name, url);
