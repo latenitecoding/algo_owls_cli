@@ -1,8 +1,11 @@
 use crate::common::{OwlError, Result};
+use flate2::read::GzDecoder;
 use std::collections::VecDeque;
+use std::ffi::OsStr;
 use std::fs::{self, OpenOptions};
 use std::io::{Cursor, copy};
 use std::path::{Path, PathBuf};
+use tar::Archive;
 use url::Url;
 use zip::ZipArchive;
 
@@ -127,8 +130,17 @@ pub fn dir_tree(root_dir: &Path) -> Result<Vec<PathBuf>> {
 }
 
 pub async fn download_archive(url: &Url, tmp_archive: &Path, out_dir: &Path) -> Result<()> {
-    download_file(url, tmp_archive).await?;
-    extract_archive(tmp_archive, out_dir, true).await
+    if let Some(mut segments) = url.path_segments()
+        && let Some(filename) = segments.next_back()
+        && Path::new(filename).extension().is_some()
+    {
+        let archive_path = Path::new(filename);
+        download_file(url, archive_path).await?;
+        extract_archive(archive_path, out_dir, true).await
+    } else {
+        download_file(url, tmp_archive).await?;
+        extract_archive(tmp_archive, out_dir, true).await
+    }
 }
 
 pub async fn download_file(url: &Url, out: &Path) -> Result<()> {
@@ -199,33 +211,26 @@ pub fn ensure_path_from_home(dirs: &[&str], file_str: Option<&str>) -> Result<Pa
 }
 
 pub async fn extract_archive(
-    archive_file: &Path,
+    archive_path: &Path,
     out_dir: &Path,
     remove_archive: bool,
 ) -> Result<()> {
-    let zip_file = OpenOptions::new()
-        .read(true)
-        .open(archive_file)
-        .map_err(|e| {
-            OwlError::FileError(
-                format!(
-                    "Failed to open zip archive '{}' for reading",
-                    archive_file.to_string_lossy()
-                ),
-                e.to_string(),
-            )
-        })?;
+    let archive_ext = archive_path.extension().and_then(OsStr::to_str);
 
-    let mut zip_archive = ZipArchive::new(zip_file).map_err(|e| {
-        OwlError::FileError(
-            format!(
-                "Failed to parse zip archive '{}'",
-                archive_file.to_string_lossy()
-            ),
-            e.to_string(),
-        )
-    })?;
+    if let Some(ext) = archive_ext
+        && (ext == "zip" || ext == "archive")
+    {
+        extract_zip_archive(archive_path, out_dir, remove_archive).await
+    } else {
+        extract_tar_archive(archive_path, out_dir, remove_archive).await
+    }
+}
 
+pub async fn extract_tar_archive(
+    archive_path: &Path,
+    out_dir: &Path,
+    remove_archive: bool,
+) -> Result<()> {
     if !out_dir.exists() {
         fs::create_dir_all(out_dir).map_err(|e| {
             OwlError::FileError(
@@ -238,11 +243,27 @@ pub async fn extract_archive(
         })?;
     }
 
-    zip_archive.extract(out_dir).map_err(|e| {
+    let tar_file = OpenOptions::new()
+        .read(true)
+        .open(archive_path)
+        .map_err(|e| {
+            OwlError::FileError(
+                format!(
+                    "Failed to open tar archive '{}' for reading",
+                    archive_path.to_string_lossy()
+                ),
+                e.to_string(),
+            )
+        })?;
+
+    let tar = GzDecoder::new(tar_file);
+    let mut tar_archive = Archive::new(tar);
+
+    tar_archive.unpack(out_dir).map_err(|e| {
         OwlError::FileError(
             format!(
-                "Failed to extract zip archive '{}' into '{}'",
-                archive_file.to_string_lossy(),
+                "Failed to extract tar archive '{}' into '{}'",
+                archive_path.to_string_lossy(),
                 out_dir.to_string_lossy()
             ),
             e.to_string(),
@@ -250,7 +271,65 @@ pub async fn extract_archive(
     })?;
 
     if remove_archive {
-        remove_path(archive_file)?;
+        remove_path(archive_path)?;
+    }
+
+    Ok(())
+}
+
+pub async fn extract_zip_archive(
+    archive_path: &Path,
+    out_dir: &Path,
+    remove_archive: bool,
+) -> Result<()> {
+    if !out_dir.exists() {
+        fs::create_dir_all(out_dir).map_err(|e| {
+            OwlError::FileError(
+                format!(
+                    "Failed to create all dirs in '{}'",
+                    out_dir.to_string_lossy()
+                ),
+                e.to_string(),
+            )
+        })?;
+    }
+
+    let zip_file = OpenOptions::new()
+        .read(true)
+        .open(archive_path)
+        .map_err(|e| {
+            OwlError::FileError(
+                format!(
+                    "Failed to open zip archive '{}' for reading",
+                    archive_path.to_string_lossy()
+                ),
+                e.to_string(),
+            )
+        })?;
+
+    let mut zip_archive = ZipArchive::new(zip_file).map_err(|e| {
+        OwlError::FileError(
+            format!(
+                "Failed to parse zip archive '{}'",
+                archive_path.to_string_lossy()
+            ),
+            e.to_string(),
+        )
+    })?;
+
+    zip_archive.extract(out_dir).map_err(|e| {
+        OwlError::FileError(
+            format!(
+                "Failed to extract zip archive '{}' into '{}'",
+                archive_path.to_string_lossy(),
+                out_dir.to_string_lossy()
+            ),
+            e.to_string(),
+        )
+    })?;
+
+    if remove_archive {
+        remove_path(archive_path)?;
     }
 
     Ok(())

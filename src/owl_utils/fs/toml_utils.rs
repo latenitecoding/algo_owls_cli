@@ -73,7 +73,7 @@ pub async fn commit_doc(
 
                 match Uri::try_from(quest_uri_str)? {
                     Uri::Local(path) => {
-                        fs_utils::extract_archive(&path, tmp_archive, true).await?;
+                        fs_utils::extract_archive(&path, &quest_path, false).await?;
                     }
                     Uri::Remote(url) => {
                         fs_utils::download_archive(&url, tmp_archive, &quest_path).await?
@@ -457,8 +457,31 @@ pub async fn update_manifest(
 
         let remote_doc = request_toml(manifest_url).await?;
 
-        manifest_doc["manifest"] = remote_doc["manifest"].clone();
-        manifest_doc["quests"] = remote_doc["quests"].clone();
+        manifest_doc["manifest"]["timestamp"] = remote_doc["manifest"]["timestamp"].clone();
+
+        if let Some(ext_table) = remote_doc["extensions"].as_table() {
+            for (key, item) in ext_table.iter() {
+                manifest_doc["extensions"][key] = item.clone();
+            }
+        }
+
+        if let Some(ext_uri_table) = remote_doc["ext_uri"].as_table() {
+            for (key, item) in ext_uri_table.iter() {
+                manifest_doc["ext_uri"][key] = item.clone();
+            }
+        }
+
+        if let Some(prompt_table) = remote_doc["prompts"].as_table() {
+            for (key, item) in prompt_table.iter() {
+                manifest_doc["prompts"][key] = item.clone();
+            }
+        }
+
+        if let Some(quests_table) = remote_doc["quests"].as_table() {
+            for (key, item) in quests_table.iter() {
+                manifest_doc["quests"][key] = item.clone();
+            }
+        }
 
         write_manifest(&manifest_doc, manifest_path)?;
     }

@@ -27,7 +27,7 @@ const OWL_DIR: &str = ".owlgo";
 const PROMPT_DIR: &str = ".prompt";
 const PROMPT_FILE: &str = ".prompt.md";
 const TEMPLATE_STEM: &str = ".template";
-const TMP_ARCHIVE: &str = ".tmp.zip";
+const TMP_ARCHIVE: &str = ".tmp.archive";
 const STASH_DIR: &str = ".stash";
 
 // it must be that [manifest] is at the top
