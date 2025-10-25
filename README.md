@@ -33,11 +33,28 @@ If you're having trouble solving a problem, understanding the problem descriptio
 
 ![Made with VHS](./demos/review_demo.gif)
 
-_Note that the above example has been edited to remove the time that claude took to think. Responses typically vary between 10-30s._
+> [!NOTE]
+> Note that the above example has been edited to remove the time that claude took to think. Responses typically vary between 10-30s.
 
 If you'd like, you can go back and view your chat history or any of your other stashed files at any time.
 
 ![Made with VHS](./demos/list_demo.gif)
 
 To ensure that you never lose your history or any of the hard work that you've put into improving your programming skills, owlgo also provides git integration.
+
+![Made with VHS](./demos/git_demo.gif)
+
+## Install
+
+Use the cargo package manager:
+
+```sh
+cargo install owlgo
+```
+
+Run help to ensure that it installed correctly and begin exploring what owlgo can do.
+
+```sh
+owlgo -h
+```
 
