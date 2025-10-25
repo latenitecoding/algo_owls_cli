@@ -1,0 +1,1 @@
+neofetch --ascii "$(figlet -c -f ANSIShadow OWLGO)"
