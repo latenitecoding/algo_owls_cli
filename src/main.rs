@@ -33,7 +33,7 @@ const STASH_DIR: &str = ".stash";
 // it must be that [manifest] is at the top
 const TOML_TEMPLATE: &str = r#"
 [manifest]
-version = "0.1.6"
+version = "0.1.7"
 timestamp = "0.0.0"
 ai_sdk = "claude"
 api_key = ""
